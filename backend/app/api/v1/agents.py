@@ -594,6 +594,11 @@ Use Markdown formatting for readability.""",
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
+        headers={
+            "X-Accel-Buffering": "no",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
     )
 
 
@@ -715,4 +720,9 @@ async def route_stream_continue(
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
+        headers={
+            "X-Accel-Buffering": "no",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
     )
