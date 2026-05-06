@@ -388,7 +388,7 @@ SAFETY:
                 await db.commit()
 
     # ------------------------------------------------------------------
-    # Interview / Multi-turn questioning
+    # Interview / Multi-turn questioning  (Clinical Standard Edition)
     # ------------------------------------------------------------------
 
     async def interview(
@@ -396,8 +396,12 @@ SAFETY:
         session_id: str,
         collected_info: dict[str, Any] | None = None,
         chief_complaint: str = "",
+        patient_history: str | None = None,
     ) -> tuple[QuestionTemplate | None, InterviewState]:
-        """Determine the next interview question using LLM-driven dynamic engine.
+        """Determine the next interview question using LLM-driven clinical engine.
+
+        NEW: Supports tool calls during interview (patient history lookup,
+        knowledge search), structured answer extraction, and red flag detection.
 
         Returns:
             (next_question, updated_state) — next_question is None if interview is complete.
@@ -418,26 +422,144 @@ SAFETY:
         if chief_complaint and not state.chief_complaint:
             state.chief_complaint = chief_complaint
 
-        # Merge newly provided info
+        # Merge newly provided info (legacy compat)
         if collected_info:
             state.collected_info.update(collected_info)
             for key in collected_info:
                 if key not in state.asked_questions:
                     state.asked_questions.append(key)
 
-        # If already sufficient, skip
-        if state.is_sufficient or len(state.asked_questions) >= state.max_questions:
+        # Check red flags — if detected, end interview immediately
+        if state.red_flags_detected:
             state.is_sufficient = True
             state.current_question_id = None
             await self._update_interview_state(session_id, state)
             return None, state
 
+        # If already sufficient, skip
+        if state.is_sufficient or len(state.asked_questions) >= state.max_questions:
+            if len(state.asked_questions) >= state.min_questions:
+                state.is_sufficient = True
+                state.current_question_id = None
+                await self._update_interview_state(session_id, state)
+                return None, state
+
         # Use LLM to decide next question
         llm = LLMService(provider=self.provider)
         engine = DynamicInterviewEngine(llm)
-        next_q, state = await engine.decide_next(state)
+
+        # Execute any pending suggested tools before asking next question
+        tool_results: list[dict[str, Any]] = []
+        if state.interview_tool_calls:
+            for tc in state.interview_tool_calls:
+                result = await GLOBAL_REGISTRY.execute(
+                    tc.get("tool", ""), tc.get("params", {})
+                )
+                tool_results.append({"tool": tc.get("tool"), "result": result})
+            state.interview_tool_calls = []  # Clear after execution
+
+        next_q, state, suggested_tools = await engine.decide_next(
+            state, patient_history=patient_history, tool_results=tool_results
+        )
+
+        # Store suggested tools for next round execution
+        if suggested_tools:
+            state.interview_tool_calls = [
+                {"tool": t, "params": {}} for t in suggested_tools
+            ]
+
         await self._update_interview_state(session_id, state)
         return next_q, state
+
+    async def interview_answer(
+        self,
+        session_id: str,
+        question_id: str,
+        answer: str,
+        patient_history: str | None = None,
+    ) -> tuple[QuestionTemplate | None, InterviewState]:
+        """Process a patient's answer and determine the next question.
+
+        This is the core of the conversational interview flow:
+        1. Extract structured info from natural language answer
+        2. Check for red flags
+        3. Decide next question (or end interview)
+
+        Returns:
+            (next_question, updated_state) — next_question is None if interview is complete.
+        """
+        # Load state
+        state = InterviewState()
+        async with async_session_maker() as db:
+            from sqlalchemy import select
+            stmt = select(AgentSession).where(AgentSession.id == uuid.UUID(session_id))
+            result = await db.execute(stmt)
+            session = result.scalar_one_or_none()
+            if session and session.context:
+                interview_data = session.context.get("interview")
+                if interview_data:
+                    state = InterviewState.from_dict(interview_data)
+
+        # Process answer: extract structured info from natural language
+        llm = LLMService(provider=self.provider)
+        engine = DynamicInterviewEngine(llm)
+        state = await engine.process_answer(state, question_id, answer)
+
+        # Check red flags immediately
+        if state.red_flags_detected:
+            state.is_sufficient = True
+            state.current_question_id = None
+            await self._update_interview_state(session_id, state)
+            return None, state
+
+        # Decide next question
+        next_q, state, suggested_tools = await engine.decide_next(
+            state, patient_history=patient_history
+        )
+
+        if suggested_tools:
+            state.interview_tool_calls = [
+                {"tool": t, "params": {}} for t in suggested_tools
+            ]
+
+        await self._update_interview_state(session_id, state)
+        return next_q, state
+
+    async def run_full_diagnosis_workflow(
+        self,
+        session_id: str,
+        patient_id: str | None = None,
+        patient_history: str | None = None,
+    ) -> AgentResult:
+        """Run the complete workflow: interview → analyze → planning.
+
+        This is called after the interview phase is complete.
+        It composes the full diagnosis + treatment recommendation.
+        """
+        # Load interview state
+        state = InterviewState()
+        async with async_session_maker() as db:
+            from sqlalchemy import select
+            stmt = select(AgentSession).where(AgentSession.id == uuid.UUID(session_id))
+            result = await db.execute(stmt)
+            session = result.scalar_one_or_none()
+            if session and session.context:
+                interview_data = session.context.get("interview")
+                if interview_data:
+                    state = InterviewState.from_dict(interview_data)
+
+        # Build enriched symptoms from interview
+        enriched_symptoms = state.get_summary()
+
+        # Run diagnosis analysis with tools
+        diag_result = await self.analyze(
+            symptoms=enriched_symptoms,
+            patient_id=patient_id,
+            patient_history=patient_history,
+            session_id=session_id,
+        )
+
+        return diag_result
 
     async def _update_interview_state(
         self,

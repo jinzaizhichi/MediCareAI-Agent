@@ -512,11 +512,12 @@ Use Markdown formatting for readability.""",
                         next_q, state = await diag_agent.interview(
                             session_id=session_id,
                             chief_complaint=message,
+                            patient_history=patient_history,
                         )
                         if next_q:
-                            # Send progress summary
-                            yield f"event: interview_progress\ndata: {json.dumps({'collected': state.collected_info, 'asked_count': len(state.asked_questions)})}\n\n"
-                            # Send the question
+                            # Send progress summary with phase info
+                            yield f"event: interview_progress\ndata: {json.dumps({'collected': state.collected_info, 'asked_count': len(state.asked_questions), 'phase': next_q.phase, 'colloquial_phase': next_q.colloquial_phase})}\n\n"
+                            # Send the question with phase metadata
                             q_payload = {
                                 "question_id": next_q.question_id,
                                 "question": next_q.question,
@@ -524,9 +525,16 @@ Use Markdown formatting for readability.""",
                                 "options": next_q.options,
                                 "hint": next_q.hint,
                                 "allow_skip": next_q.allow_skip,
+                                "phase": next_q.phase,
+                                "colloquial_phase": next_q.colloquial_phase,
                             }
                             yield f"event: question\ndata: {json.dumps(q_payload)}\n\n"
                             yield f"event: complete\ndata: {json.dumps({'status': 'waiting_for_answer', 'session_id': session_id})}\n\n"
+                            return
+                        elif state.red_flags_detected:
+                            # Red flags detected during interview
+                            yield f"event: red_flags\ndata: {json.dumps({'red_flags': state.red_flags_detected, 'message': '检测到危险信号，建议立即就医'})}\n\n"
+                            yield f"event: complete\ndata: {json.dumps({'status': 'red_flags', 'session_id': session_id})}\n\n"
                             return
                     except Exception:
                         # Interview failed — fall through to direct diagnosis
@@ -641,11 +649,12 @@ async def route_stream_continue(
 
         diag_agent = DiagnosisAgent(provider=None)
 
-        # Advance interview with the new answer
+        # Process answer using new clinical interview engine
         try:
-            next_q, state = await diag_agent.interview(
+            next_q, state = await diag_agent.interview_answer(
                 session_id=req.session_id,
-                collected_info={req.question_id: req.answer},
+                question_id=req.question_id,
+                answer=req.answer,
             )
         except Exception as e:
             yield f"event: error\ndata: {json.dumps({'error': f'Interview error: {e}'})}\n\n"
@@ -653,7 +662,7 @@ async def route_stream_continue(
 
         if next_q:
             # More questions needed
-            yield f"event: interview_progress\ndata: {json.dumps({'collected': state.collected_info, 'asked_count': len(state.asked_questions)})}\n\n"
+            yield f"event: interview_progress\ndata: {json.dumps({'collected': state.collected_info, 'asked_count': len(state.asked_questions), 'phase': next_q.phase, 'colloquial_phase': next_q.colloquial_phase})}\n\n"
             q_payload = {
                 "question_id": next_q.question_id,
                 "question": next_q.question,
@@ -661,27 +670,28 @@ async def route_stream_continue(
                 "options": next_q.options,
                 "hint": next_q.hint,
                 "allow_skip": next_q.allow_skip,
+                "phase": next_q.phase,
+                "colloquial_phase": next_q.colloquial_phase,
             }
             yield f"event: question\ndata: {json.dumps(q_payload)}\n\n"
             yield f"event: complete\ndata: {json.dumps({'status': 'waiting_for_answer', 'session_id': req.session_id})}\n\n"
             return
 
-        # Interview complete — proceed to real diagnosis
-        _msg_start = "🧠 DiagnosisAgent 正在启动真实诊断分析..."
+        # Check for red flags
+        if state.red_flags_detected:
+            yield f"event: red_flags\ndata: {json.dumps({'red_flags': state.red_flags_detected, 'message': '检测到危险信号，建议立即就医'})}\n\n"
+            yield f"event: complete\ndata: {json.dumps({'status': 'red_flags', 'session_id': req.session_id})}\n\n"
+            return
+
+        # Interview complete — proceed to diagnosis using structured summary
+        _msg_start = "🧠 问诊完成，正在整理问诊信息..."
         yield f"event: thinking\ndata: {json.dumps({'step': 'diagnosis', 'message': _msg_start})}\n\n"
 
         try:
-            # Build enriched symptoms from collected interview info
-            collected = state.collected_info
-            enriched_symptoms = f"{session.intent or '患者主诉'}"
-            if collected:
-                details = ", ".join(f"{k}={v}" for k, v in collected.items())
-                enriched_symptoms += f"\n问诊信息: {details}"
-
-            result = await diag_agent.analyze(
-                symptoms=enriched_symptoms,
-                patient_id=str(session.user_id) if session.user_id else None,
+            # Use the new full workflow which generates enriched symptoms from interview state
+            result = await diag_agent.run_full_diagnosis_workflow(
                 session_id=req.session_id,
+                patient_id=str(session.user_id) if session.user_id else None,
             )
 
             # Stream tool calls
@@ -696,7 +706,7 @@ async def route_stream_continue(
                     _tr_msg = f"✅ {tool_name} 执行完成"
                     yield f"event: tool_result\ndata: {json.dumps({'tool': tool_name, 'result': result_data, 'message': _tr_msg})}\n\n"
 
-            _msg_analyze = "🧠 DiagnosisAgent 正在综合分析并生成结构化报告..."
+            _msg_analyze = "🧠 正在综合分析并生成诊断报告..."
             yield f"event: thinking\ndata: {json.dumps({'step': 'diagnosis', 'message': _msg_analyze})}\n\n"
 
             if result.structured_output:

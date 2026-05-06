@@ -63,6 +63,8 @@ export interface InterviewQuestion {
   options?: string[];
   hint?: string;
   allow_skip?: boolean;
+  phase?: string;           // 标准医学阶段 ID（如 hpi_onset, pmh_chronic）
+  colloquial_phase?: string; // 口语化阶段名称（如 '症状情况', '用药情况'）
 }
 
 /** 用户消息 */

@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Box, Typography, Chip, TextField, Button } from '@mui/material';
+import { Box, Typography, Chip, TextField, Button, Paper, Fade } from '@mui/material';
+import MedicalInformationIcon from '@mui/icons-material/MedicalInformation';
 import type { InterviewQuestion } from '../types/agent';
 
 interface Props {
@@ -8,9 +9,32 @@ interface Props {
   disabled?: boolean;
 }
 
+/**
+ * Phase color mapping for visual feedback
+ */
+const PHASE_COLORS: Record<string, { bg: string; border: string; icon: string }> = {
+  '症状情况': { bg: '#FFF3E0', border: '#FFB74D', icon: '🌡️' },
+  '就诊情况': { bg: '#E3F2FD', border: '#64B5F6', icon: '🏥' },
+  '健康状况': { bg: '#E8F5E9', border: '#81C784', icon: '💚' },
+  '过敏情况': { bg: '#FCE4EC', border: '#F06292', icon: '⚠️' },
+  '生活习惯': { bg: '#F3E5F5', border: '#BA68C8', icon: '🍺' },
+  '工作生活': { bg: '#E0F7FA', border: '#4DD0E1', icon: '💼' },
+  '出行情况': { bg: '#E8EAF6', border: '#7986CB', icon: '✈️' },
+  '家人健康': { bg: '#FFF8E1', border: '#FFD54F', icon: '👨‍👩‍👧' },
+  '用药情况': { bg: '#E0F2F1', border: '#4DB6AC', icon: '💊' },
+  '补充': { bg: '#F5F5F5', border: '#BDBDBD', icon: '📝' },
+};
+
+function getPhaseStyle(phase?: string) {
+  if (!phase) return { bg: '#FFF8F0', border: '#F5E6D3', icon: '💬' };
+  return PHASE_COLORS[phase] || { bg: '#FFF8F0', border: '#F5E6D3', icon: '💬' };
+}
+
 export default function InterviewQuestion({ question, onAnswer, disabled = false }: Props) {
   const [textAnswer, setTextAnswer] = useState('');
   const [answered, setAnswered] = useState(false);
+
+  const phaseStyle = getPhaseStyle(question.colloquial_phase);
 
   const handleChoice = (option: string) => {
     if (disabled || answered) return;
@@ -33,104 +57,154 @@ export default function InterviewQuestion({ question, onAnswer, disabled = false
   };
 
   return (
-    <Box sx={{ mt: 1.5, mb: 1 }}>
-      <Typography variant="subtitle2" sx={{ fontWeight: 600, color: '#5C4033', mb: 1 }}>
-        {question.question}
-      </Typography>
-
-      {question.hint && (
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-          {question.hint}
-        </Typography>
-      )}
-
-      {question.type === 'choice' && question.options && (
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-          {question.options.map((option) => (
-            <Chip
-              key={option}
-              label={option}
-              clickable
-              disabled={disabled || answered}
-              onClick={() => handleChoice(option)}
-              sx={{
-                bgcolor: answered ? '#F5E6D3' : '#FFF8F0',
-                border: '1px solid #F5E6D3',
-                color: '#5C4033',
-                fontWeight: 500,
-                '&:hover': {
-                  bgcolor: '#F5E6D3',
-                  borderColor: '#E8956A',
-                },
-                '&.Mui-disabled': {
-                  opacity: answered ? 0.7 : 0.4,
-                  bgcolor: '#FFF8F0',
-                },
-              }}
-            />
-          ))}
-          {question.allow_skip && (
-            <Chip
-              label="跳过"
-              clickable
-              disabled={disabled || answered}
-              onClick={() => handleChoice('skipped')}
-              sx={{
-                bgcolor: 'transparent',
-                border: '1px dashed #C4A484',
-                color: '#8B7355',
-                '&:hover': {
-                  bgcolor: '#FFF8F0',
-                  borderColor: '#E8956A',
-                },
-              }}
-            />
-          )}
-        </Box>
-      )}
-
-      {question.type === 'text' && (
-        <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
-          <TextField
-            fullWidth
-            size="small"
-            placeholder="请输入您的回答..."
-            value={textAnswer}
-            onChange={(e) => setTextAnswer(e.target.value)}
-            onKeyDown={handleKeyDown}
-            disabled={disabled || answered}
-            variant="outlined"
+    <Fade in={true} timeout={400}>
+      <Paper
+        elevation={0}
+        sx={{
+          mt: 1.5,
+          mb: 1,
+          p: 2,
+          borderRadius: 3,
+          bgcolor: phaseStyle.bg,
+          border: `2px solid ${phaseStyle.border}`,
+          transition: 'all 0.3s ease',
+        }}
+      >
+        {/* Phase indicator */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
+          <Typography variant="caption" sx={{ fontSize: '1rem' }}>
+            {phaseStyle.icon}
+          </Typography>
+          <Typography
+            variant="caption"
             sx={{
-              '& .MuiOutlinedInput-root': {
-                bgcolor: '#FFF8F0',
-                borderRadius: 2,
-                fontSize: 14,
-              },
-            }}
-          />
-          <Button
-            variant="contained"
-            size="small"
-            onClick={handleTextSubmit}
-            disabled={disabled || answered || !textAnswer.trim()}
-            sx={{
-              minWidth: 64,
-              borderRadius: 2,
-              bgcolor: '#E8956A',
-              '&:hover': { bgcolor: '#D4835A' },
-              '&.Mui-disabled': { bgcolor: '#F5E6D3', color: '#8B7355' },
+              fontWeight: 600,
+              color: '#5C4033',
+              textTransform: 'uppercase',
+              letterSpacing: 0.5,
             }}
           >
-            回答
-          </Button>
+            {question.colloquial_phase || '问诊'}
+          </Typography>
+          <Box sx={{ flex: 1 }} />
+          <MedicalInformationIcon sx={{ fontSize: 16, color: phaseStyle.border }} />
         </Box>
-      )}
 
-      {answered && (
-        <Typography variant="caption" color="success.main" sx={{ mt: 0.5, display: 'block' }}>
-          ✅ 已提交
+        <Typography variant="subtitle2" sx={{ fontWeight: 600, color: '#3E2723', mb: 1, lineHeight: 1.5 }}>
+          {question.question}
         </Typography>
-      )}
-    </Box>
+
+        {question.hint && (
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5, fontStyle: 'italic' }}>
+            💡 {question.hint}
+          </Typography>
+        )}
+
+        {question.type === 'choice' && question.options && (
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+            {question.options.map((option) => (
+              <Chip
+                key={option}
+                label={option}
+                clickable
+                disabled={disabled || answered}
+                onClick={() => handleChoice(option)}
+                sx={{
+                  bgcolor: answered ? phaseStyle.bg : '#FFFFFF',
+                  border: `1.5px solid ${phaseStyle.border}`,
+                  color: '#3E2723',
+                  fontWeight: 500,
+                  fontSize: 14,
+                  px: 0.5,
+                  '&:hover': {
+                    bgcolor: phaseStyle.bg,
+                    borderColor: phaseStyle.border,
+                    transform: 'translateY(-1px)',
+                  },
+                  '&.Mui-disabled': {
+                    opacity: answered ? 0.7 : 0.4,
+                    bgcolor: '#FFFFFF',
+                  },
+                  transition: 'all 0.2s ease',
+                }}
+              />
+            ))}
+            {question.allow_skip && (
+              <Chip
+                label="跳过这题"
+                clickable
+                disabled={disabled || answered}
+                onClick={() => handleChoice('skipped')}
+                sx={{
+                  bgcolor: 'transparent',
+                  border: `1.5px dashed ${phaseStyle.border}`,
+                  color: '#8B7355',
+                  fontSize: 13,
+                  '&:hover': {
+                    bgcolor: phaseStyle.bg,
+                    borderColor: phaseStyle.border,
+                  },
+                }}
+              />
+            )}
+          </Box>
+        )}
+
+        {question.type === 'text' && (
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
+            <TextField
+              fullWidth
+              size="small"
+              placeholder="请输入您的回答..."
+              value={textAnswer}
+              onChange={(e) => setTextAnswer(e.target.value)}
+              onKeyDown={handleKeyDown}
+              disabled={disabled || answered}
+              variant="outlined"
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  bgcolor: '#FFFFFF',
+                  borderRadius: 2,
+                  fontSize: 14,
+                  '& fieldset': {
+                    borderColor: phaseStyle.border,
+                  },
+                  '&:hover fieldset': {
+                    borderColor: phaseStyle.border,
+                  },
+                  '&.Mui-focused fieldset': {
+                    borderColor: phaseStyle.border,
+                    borderWidth: 2,
+                  },
+                },
+              }}
+            />
+            <Button
+              variant="contained"
+              size="small"
+              onClick={handleTextSubmit}
+              disabled={disabled || answered || !textAnswer.trim()}
+              sx={{
+                minWidth: 64,
+                borderRadius: 2,
+                bgcolor: phaseStyle.border,
+                '&:hover': { bgcolor: phaseStyle.border, opacity: 0.9 },
+                '&.Mui-disabled': { bgcolor: '#F5E6D3', color: '#8B7355' },
+                textTransform: 'none',
+                fontWeight: 600,
+              }}
+            >
+              回答
+            </Button>
+          </Box>
+        )}
+
+        {answered && (
+          <Typography variant="caption" color="success.main" sx={{ mt: 1, display: 'block', fontWeight: 500 }}>
+            ✅ 已记录您的回答
+          </Typography>
+        )}
+      </Paper>
+    </Fade>
   );
 }
