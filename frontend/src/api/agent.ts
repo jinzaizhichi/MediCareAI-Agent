@@ -233,6 +233,22 @@ export function streamDiagnoseContinue(
       while (true) {
         const { done, value } = await reader.read();
         if (done) {
+          // Process any remaining buffered lines
+          if (buffer) {
+            const lines = buffer.split('\n');
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (trimmed === '') {
+                flushEvent();
+                continue;
+              }
+              if (trimmed.startsWith('event:')) {
+                currentEvent = trimmed.slice(6).trim() as SSEEventType;
+              } else if (trimmed.startsWith('data:')) {
+                currentData += trimmed.slice(5).trim();
+              }
+            }
+          }
           flushEvent();
           break;
         }
