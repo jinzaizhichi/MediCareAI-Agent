@@ -681,14 +681,37 @@ class DynamicInterviewEngine:
                     decision.sufficient = False
 
             if decision.next_question is None:
-                # LLM didn't provide a question but we can't end yet
+                # LLM didn't provide a question but we can't end yet.
+                # Retry ONCE with a simpler, more forceful prompt before falling back.
                 hpi_phases = [p.value for p in PHASE_ORDER[:8]]
                 hpi_covered = sum(1 for p in hpi_phases if p in state.collected_info)
                 if len(state.asked_questions) >= state.max_questions or (hpi_covered >= 3 and len(state.asked_questions) >= 3):
                     state.is_sufficient = True
                     state.current_question_id = None
                     return None, state, []
-                return self._fallback_question(state), state, []
+
+                # --- Retry with forceful prompt ---
+                retry_prompt = _build_interview_prompt(state, patient_history, tool_results)
+                retry_prompt += "\n\n⚠️ 重要提示：上一次你返回了 sufficient=false 但没有提供 next_question。\n"
+                retry_prompt += "这是错误的。当 sufficient=false 时，必须提供一个具体的问题。\n"
+                retry_prompt += "请立刻生成下一个问题，不要返回 null。\n"
+
+                try:
+                    retry_response = await self.llm.chat(
+                        messages=[{"role": "user", "content": retry_prompt}],
+                        system_prompt=INTERVIEW_SYSTEM_PROMPT,
+                        temperature=0.2,
+                        max_tokens=2000,
+                    )
+                    retry_raw = _extract_json(retry_response.content)
+                    retry_decision = InterviewDecision.model_validate(retry_raw)
+
+                    if retry_decision.next_question is not None:
+                        decision = retry_decision
+                    else:
+                        return self._fallback_question(state), state, []
+                except Exception:
+                    return self._fallback_question(state), state, []
 
             q = decision.next_question
             # Validate: don't repeat asked questions
@@ -861,182 +884,17 @@ class DynamicInterviewEngine:
         return state
 
     def _fallback_question(self, state: InterviewState) -> QuestionTemplate:
-        """Generate a targeted fallback question based on chief complaint keywords and differential diagnoses."""
-        chief = state.chief_complaint or ""
-        chief_lower = chief.lower()
+        """Minimal fallback when LLM fails to provide a question.
 
-        # Get current differential diagnoses to guide fallback
-        diffs = state.get_differential_diagnoses()
+        This is a LAST RESORT — the LLM in decide_next() should normally
+        generate targeted questions autonomously. We only land here if the
+        LLM returns an inconsistent result (sufficient=false but no next_question).
 
-        # If we have diffs, try to ask about missing features of top hypothesis
-        if diffs and diffs[0].key_features:
-            top = diffs[0]
-            asked_set = set(state.asked_questions)
-            for feature in top.key_features:
-                feature_key = feature.lower().replace(" ", "").replace("？", "")
-                if not any(feature_key in q.lower() for q in asked_set):
-                    return QuestionTemplate(
-                        question_id=f"hpi_associated_{len(state.asked_questions)}",
-                        question=f"您有没有{feature}的情况？",
-                        type="choice",
-                        options=["有", "没有", "不太确定"],
-                        hint="这有助于判断具体情况",
-                        allow_skip=True,
-                        phase="hpi_associated",
-                        colloquial_phase="症状情况",
-                    )
-
-        # Keyword-based fallback (simplified but targeted)
-        if any(k in chief_lower for k in ("发烧", "发热", "热", "高烧", "低烧", "退烧")):
-            temp_already_asked = any(
-                q in state.asked_questions or q in state.collected_info
-                for q in ("hpi_severity", "体温", "温度")
-            )
-            if not temp_already_asked:
-                return QuestionTemplate(
-                    question_id="hpi_severity",
-                    question="您量过体温吗？最高大概多少度？",
-                    type="text",
-                    hint="比如 38.5°C 之类的具体数值",
-                    allow_skip=True,
-                    phase="hpi_severity",
-                    colloquial_phase="症状情况",
-                )
-            if any(k in chief_lower for k in ("头疼", "头痛", "头晕")):
-                return QuestionTemplate(
-                    question_id="hpi_quality",
-                    question="头疼是怎么个疼法？胀痛、刺痛、还是一跳一跳地疼？",
-                    type="choice",
-                    options=["胀痛或压痛", "刺痛或针扎痛", "一跳一跳的搏动痛", "绞痛或紧箍痛", "说不清楚"],
-                    hint="这有助于判断原因",
-                    allow_skip=True,
-                    phase="hpi_quality",
-                    colloquial_phase="症状情况",
-                )
-
-        elif any(k in chief_lower for k in ("头疼", "头痛", "头晕")):
-            location_already_asked = any(
-                q in state.asked_questions or q in state.collected_info
-                for q in ("hpi_location", "部位", "头疼部位")
-            )
-            if not location_already_asked:
-                return QuestionTemplate(
-                    question_id="hpi_location",
-                    question="头疼主要在哪个位置？前额、后脑勺、两侧还是整个头？",
-                    type="choice",
-                    options=["前额", "后脑勺", "两侧太阳穴", "整个头", "说不清楚"],
-                    hint="请描述具体位置",
-                    allow_skip=True,
-                    phase="hpi_location",
-                    colloquial_phase="症状情况",
-                )
-            return QuestionTemplate(
-                question_id="hpi_quality",
-                question="头疼是怎么个疼法？胀痛、刺痛、还是一跳一跳地疼？",
-                type="choice",
-                options=["胀痛或压痛", "刺痛或针扎痛", "一跳一跳的搏动痛", "绞痛或紧箍痛", "说不清楚"],
-                hint="这有助于判断原因",
-                allow_skip=True,
-                phase="hpi_quality",
-                colloquial_phase="症状情况",
-            )
-
-        elif any(k in chief_lower for k in ("肚子疼", "腹痛", "肚疼", "拉肚子", "腹泻", "拉稀")):
-            stool_already_asked = any(
-                q in state.asked_questions or q in state.collected_info
-                for q in ("hpi_character", "大便性状", "大便")
-            )
-            if not stool_already_asked:
-                return QuestionTemplate(
-                    question_id="hpi_quality",
-                    question="大便是什么样的？稀水样、有黏液、还是带血？",
-                    type="choice",
-                    options=["稀水样", "像鼻涕一样有黏液", "带血或像果酱", "次数多但每次量少", "说不清楚"],
-                    hint="这能帮助判断是哪种感染",
-                    allow_skip=True,
-                    phase="hpi_quality",
-                    colloquial_phase="症状情况",
-                )
-            return QuestionTemplate(
-                question_id="hpi_location",
-                question="肚子疼主要是哪个位置？上腹部、肚脐周围还是下腹？",
-                type="choice",
-                options=["上腹部（心窝下）", "肚脐周围", "右下腹", "左下腹", "说不清楚"],
-                hint="请指出最疼的位置",
-                allow_skip=True,
-                phase="hpi_location",
-                colloquial_phase="症状情况",
-            )
-
-        elif any(k in chief_lower for k in ("咳嗽", "咳", "胸闷", "气短", "呼吸", "咳痰")):
-            sputum_already_asked = any(
-                q in state.asked_questions or q in state.collected_info
-                for q in ("hpi_character", "痰性质", "咳嗽", "痰")
-            )
-            if not sputum_already_asked:
-                return QuestionTemplate(
-                    question_id="hpi_quality",
-                    question="咳嗽有痰吗？是白色的痰还是黄色的？",
-                    type="choice",
-                    options=["没有痰，干咳", "白色痰", "黄色或绿色痰", "带血丝的痰", "说不清楚"],
-                    hint="痰的颜色能提供很多信息",
-                    allow_skip=True,
-                    phase="hpi_quality",
-                    colloquial_phase="症状情况",
-                )
-            return QuestionTemplate(
-                question_id="hpi_timing",
-                question="咳嗽是白天多还是晚上多？躺下的时候会不会加重？",
-                type="choice",
-                options=["白天多", "晚上多", "躺下时加重", "活动时加重", "差不多"],
-                hint="时间规律有助于判断病因",
-                allow_skip=True,
-                phase="hpi_timing",
-                colloquial_phase="症状情况",
-            )
-
-        elif any(k in chief_lower for k in ("胸痛", "胸闷", "心绞痛", "心慌", "心疼")):
-            chest_pain_already_asked = any(
-                q in state.asked_questions or q in state.collected_info
-                for q in ("hpi_character", "胸痛性质", "胸痛")
-            )
-            if not chest_pain_already_asked:
-                return QuestionTemplate(
-                    question_id="hpi_quality",
-                    question="胸痛是怎么疼的？压迫感、针刺感、还是烧灼感？",
-                    type="choice",
-                    options=["压着疼或窄着疼", "针扎样刺痛", "烧灼感", "一阵一阵的绞痛", "说不清楚"],
-                    hint="性质很重要",
-                    allow_skip=True,
-                    phase="hpi_quality",
-                    colloquial_phase="症状情况",
-                )
-            return QuestionTemplate(
-                question_id="hpi_aggravate",
-                question="胸痛是在活动时出现还是休息时也会疼？",
-                type="choice",
-                options=["活动时出现", "休息时也会疼", "两者都有", "说不清楚"],
-                hint="这能区分心源性还是其他原因",
-                allow_skip=True,
-                phase="hpi_aggravate",
-                colloquial_phase="症状情况",
-            )
-
-        # Default: ask about onset
-        if "hpi_onset" not in state.asked_questions and "起病时间" not in state.asked_questions:
-            return QuestionTemplate(
-                question_id="hpi_onset",
-                question="这个不舒服是什么时候开始的？突然出现还是慢慢加重的？",
-                type="choice",
-                options=["今天刚出现", "最近2-3天", "已经一周以上", "说不清楚"],
-                hint="请告诉我大约什么时候开始的",
-                allow_skip=True,
-                phase="hpi_onset",
-                colloquial_phase="症状情况",
-            )
-
-        # Find first unasked standard phase
-        for phase in PHASE_ORDER[state.current_phase_index:]:
+        Strategy: scan PHASE_ORDER for the first dimension not yet collected.
+        No keyword-based branching — let the LLM drive the clinical reasoning.
+        """
+        # First unasked standard phase
+        for phase in PHASE_ORDER:
             if phase.value not in state.asked_questions and phase.value not in state.collected_info:
                 meta = PHASE_META.get(phase, {})
                 q_text = self._generate_default_phase_question(phase)
@@ -1047,10 +905,10 @@ class DynamicInterviewEngine:
                     hint="可以简单描述，也可以跳过",
                     allow_skip=True,
                     phase=phase.value,
-                    colloquial_phase=meta.get("colloquial", ""),
+                    colloquial_phase=meta.get("colloquial", "问诊"),
                 )
 
-        # Everything covered
+        # True last resort — generic open-ended question
         return QuestionTemplate(
             question_id=f"fallback_{len(state.asked_questions)}",
             question="还有其他您觉得医生需要知道的情况吗？",
