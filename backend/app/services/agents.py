@@ -224,19 +224,25 @@ class DiagnosisAgent:
 
 ROLE:
 - Analyze patient symptoms and available context
-- Use tools to gather missing information (patient history, knowledge base)
-- When you have enough information, generate a structured diagnosis
+- Generate a structured diagnosis report based on ALL provided information
+- The medical knowledge context has ALREADY been searched and provided to you
+- Do NOT search for more knowledge unless explicitly asked
 
 AVAILABLE TOOLS:
-- search_medical_knowledge: Search clinical guidelines and literature
-- query_patient_history: Retrieve patient's past medical cases
+- query_patient_history: Retrieve patient's past medical cases (if patient_id provided)
 - check_drug_interactions: Check drug safety (if medications mentioned)
 - generate_structured_diagnosis: Generate the final structured report
 
 WORKFLOW:
-1. First, gather context by calling tools if needed.
-2. Then call generate_structured_diagnosis with ALL collected information.
-3. Do NOT give a free-text diagnosis — always use the structured report tool.
+1. Review the patient symptoms AND the provided medical knowledge search results.
+2. If patient_id is provided, call query_patient_history to get past cases.
+3. Call generate_structured_diagnosis to produce the final structured report.
+4. Do NOT give a free-text diagnosis — always use the structured report tool.
+
+CRITICAL:
+- The medical knowledge context in the user message comes from RAG + SearXNG real-time search.
+- Base your diagnosis on this evidence, not just your parametric knowledge.
+- Cite the knowledge sources in your reasoning.
 
 SAFETY:
 - Flag emergency conditions immediately
@@ -254,6 +260,7 @@ SAFETY:
         patient_history: str | None = None,
         test_results: str | None = None,
         session_id: str | None = None,
+        knowledge_context: str | None = None,
     ) -> AgentResult:
         """Run full diagnostic analysis with Tool Use.
 
@@ -263,6 +270,7 @@ SAFETY:
             patient_history: Free-text medical history
             test_results: Lab/imaging results
             session_id: Agent session ID for persistence
+            knowledge_context: Pre-searched medical knowledge from RAG + SearXNG
 
         Returns:
             AgentResult with structured DiagnosisReport
@@ -270,13 +278,20 @@ SAFETY:
         tool_schemas = GLOBAL_REGISTRY.list_schemas()
 
         # Build initial message
-        user_msg = f"患者主诉: {symptoms}"
+        user_msg = f"## 患者主诉及问诊信息\n{symptoms}"
         if patient_history:
-            user_msg += f"\n病史: {patient_history}"
+            user_msg += f"\n\n## 病史\n{patient_history}"
         if test_results:
-            user_msg += f"\n检查结果: {test_results}"
+            user_msg += f"\n\n## 检查结果\n{test_results}"
+        if knowledge_context:
+            user_msg += (
+                f"\n\n## 医学知识库搜索结果（已通过RAG和SearXNG实时搜索获取）\n"
+                f"{knowledge_context}\n\n"
+                f"请基于以上搜索结果和患者信息生成诊断，"
+                f"并在推理中引用这些来源。"
+            )
         if patient_id:
-            user_msg += f"\n患者ID: {patient_id} (可调用 query_patient_history 查询)"
+            user_msg += f"\n\n患者ID: {patient_id} (可调用 query_patient_history 查询历史病例)"
 
         messages: list[dict[str, str]] = [{"role": "user", "content": user_msg}]
         all_tool_calls: list[dict[str, Any]] = []
@@ -334,25 +349,53 @@ SAFETY:
                     # No more tool calls — we have the final answer
                     break
 
-            # Try to parse structured output from the final response
+            # CRITICAL: Always force structured output — never return raw text
             content = resp.content or ""
-            structured = None
-            try:
-                # The LLM should have called generate_structured_diagnosis,
-                # but if not, try to parse JSON from content
-                if content.strip().startswith("{"):
+            structured: DiagnosisReport | None = None
+
+            # Attempt 1: Parse JSON from content
+            if content.strip().startswith("{"):
+                try:
                     data = json.loads(content)
                     structured = DiagnosisReport.model_validate(data)
-                else:
-                    # Force structured generation
+                except Exception:
+                    pass
+
+            # Attempt 2: Force structured generation via schema-constrained LLM call
+            if structured is None:
+                try:
+                    # Add explicit instruction to generate structured report
+                    force_messages = messages + [{
+                        "role": "user",
+                        "content": (
+                            "请根据以上信息，生成结构化诊断报告。"
+                            "必须包含：primary_diagnosis, differential_diagnoses (2-5个), confidence, severity, "
+                            "key_findings, recommended_tests, recommended_actions, red_flags, knowledge_sources。"
+                            "输出必须是有效的JSON格式。"
+                        ),
+                    }]
                     structured = await llm.generate_structured(
-                        messages=messages,
+                        messages=force_messages,
                         output_schema=DiagnosisReport,
                         temperature=0.2,
                         max_tokens=2048,
                     )
-            except Exception:
-                structured = None
+                except Exception:
+                    pass
+
+            # Attempt 3: If still None, create a minimal valid report with error indication
+            if structured is None:
+                structured = DiagnosisReport(
+                    primary_diagnosis="诊断生成异常",
+                    differential_diagnoses=[],
+                    confidence="low",
+                    severity="unknown",
+                    key_findings=["系统无法生成完整诊断报告，请重试。"],
+                    recommended_tests=["请咨询医生进行专业诊断"],
+                    recommended_actions=["请尽快就医"],
+                    red_flags=["系统异常，建议人工复核"],
+                    knowledge_sources=[],
+                )
 
             # Persist session if requested
             if session_id:
@@ -360,12 +403,12 @@ SAFETY:
                     session_id=session_id,
                     messages=messages,
                     tool_calls=all_tool_calls,
-                    structured=structured.model_dump() if structured else None,
+                    structured=structured.model_dump(),
                 )
 
             return AgentResult(
                 agent_type="diagnosis",
-                content=structured.model_dump() if structured else content,
+                content=structured.model_dump(),
                 structured_output=structured,
                 tool_calls_used=all_tool_calls,
                 session_id=session_id,
@@ -539,10 +582,11 @@ SAFETY:
         patient_id: str | None = None,
         patient_history: str | None = None,
     ) -> AgentResult:
-        """Run the complete workflow: interview → analyze → planning.
+        """Run the complete workflow: interview → search knowledge → analyze → planning.
 
-        This is called after the interview phase is complete.
-        It composes the full diagnosis + treatment recommendation.
+        CRITICAL: Always searches medical knowledge (RAG + SearXNG) BEFORE
+        generating diagnosis, so the diagnosis is evidence-based, not just
+        from the LLM's internal parametric knowledge.
         """
         # Load interview state
         state = InterviewState()
@@ -559,12 +603,23 @@ SAFETY:
         # Build enriched symptoms from interview
         enriched_symptoms = state.get_summary()
 
-        # Run diagnosis analysis with tools
+        # STEP 1: ALWAYS search medical knowledge before diagnosis
+        # This ensures evidence-based diagnosis, not just LLM parametric knowledge
+        search_result = await GLOBAL_REGISTRY.execute(
+            "search_medical_knowledge",
+            {"query": enriched_symptoms, "top_k": 5},
+        )
+        knowledge_context = ""
+        if isinstance(search_result, dict):
+            knowledge_context = search_result.get("answer", "")
+
+        # STEP 2: Run diagnosis analysis WITH knowledge context
         diag_result = await self.analyze(
             symptoms=enriched_symptoms,
             patient_id=patient_id,
             patient_history=patient_history,
             session_id=session_id,
+            knowledge_context=knowledge_context,
         )
 
         return diag_result

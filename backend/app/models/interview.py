@@ -392,8 +392,19 @@ def _build_interview_prompt(
     elif len(state.asked_questions) >= state.max_questions:
         lines.append("已达到最大问诊数量上限，请判定信息是否足够进行初步诊断。")
     else:
-        lines.append("请判断当前信息是否足够进行初步诊断。")
-        lines.append("如果不足够，请生成下一个最应该问的具体问题——直接针对主诉中的关键症状，不要笼统。")
+        # Critical: enforce minimum clinical coverage before allowing sufficient=true
+        hpi_phases = [p.value for p in PHASE_ORDER[:8]]  # HPI phases
+        hpi_covered = sum(1 for p in hpi_phases if p in state.collected_info)
+        lines.append(f"已覆盖的现病史维度: {hpi_covered}/8 (起病、性质、部位、程度、时间、诱因、伴随症状、诊疗经过)")
+        if hpi_covered < 5:
+            lines.append("现病史信息还不足，请继续追问具体细节。不要判定为 sufficient。")
+            lines.append("目标：至少覆盖5个现病史维度后，才能考虑结束问诊。")
+        else:
+            lines.append("现病史维度已较充分。如果还有未覆盖的关键维度，可以继续追问；否则可以判定 sufficient。")
+        lines.append("")
+        lines.append("规则：sufficient=true 仅在以下情况允许：")
+        lines.append("  - 已覆盖 ≥5 个现病史维度，且已问 ≥5 个问题；或")
+        lines.append("  - 已达到 max_questions 上限。")
 
     return "\n".join(lines)
 
@@ -464,14 +475,22 @@ class DynamicInterviewEngine:
                 state.current_question_id = None
                 return None, state, []
 
-            # Check if sufficient
+            # Check if sufficient — enforce minimum clinical coverage
             if decision.sufficient or len(state.asked_questions) >= state.max_questions:
-                if len(state.asked_questions) >= state.min_questions:
+                hpi_phases = [p.value for p in PHASE_ORDER[:8]]
+                hpi_covered = sum(1 for p in hpi_phases if p in state.collected_info)
+                # Require at least 5 HPI dimensions AND at least 5 questions
+                if hpi_covered >= 5 and len(state.asked_questions) >= 5:
+                    state.is_sufficient = True
+                    state.current_question_id = None
+                    return None, state, []
+                elif len(state.asked_questions) >= state.max_questions:
+                    # Hard limit reached
                     state.is_sufficient = True
                     state.current_question_id = None
                     return None, state, []
                 else:
-                    # Not enough questions yet, force continuation
+                    # Override LLM's premature sufficient judgment
                     decision.sufficient = False
 
             if decision.next_question is None:
