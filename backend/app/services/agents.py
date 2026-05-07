@@ -680,7 +680,9 @@ OUTPUT (search query only):"""
         
         knowledge_context = ""
         if isinstance(search_result, dict):
-            knowledge_context = search_result.get("answer", "")
+            # GLOBAL_REGISTRY.execute returns {"success": True, "result": {...}}
+            actual_result = search_result.get("result", search_result)
+            knowledge_context = actual_result.get("answer", "") if isinstance(actual_result, dict) else ""
             logger.info(f"[SEARXNG_DEBUG] Knowledge context length: {len(knowledge_context)}")
         else:
             logger.warning(f"[SEARXNG_DEBUG] Unexpected search result type: {type(search_result)}, value: {str(search_result)[:200]}")
