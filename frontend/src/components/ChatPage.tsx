@@ -302,8 +302,12 @@ export default function ChatPage() {
                 const status = event.data?.status as string;
                 if (status === 'waiting_for_answer') {
                   const sid = event.data?.session_id as string;
-                  if (sid && pendingSessionRef.current) {
-                    pendingSessionRef.current.sessionId = sid;
+                  if (sid) {
+                    if (!pendingSessionRef.current) {
+                      pendingSessionRef.current = { sessionId: sid, questionId: '' };
+                    } else {
+                      pendingSessionRef.current.sessionId = sid;
+                    }
                   }
                   // Keep isStreaming=true so InterviewQuestion stays enabled
                   break;
