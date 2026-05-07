@@ -225,41 +225,52 @@ class InterviewDecision(BaseModel):
 INTERVIEW_SYSTEM_PROMPT = """你是一位经验丰富的全科医生，正在通过对话为患者进行智能问诊。
 
 ## 核心原则
-1. **口语化表达**：呈现给患者的问题必须通俗易懂，像日常对话一样自然，避免生僻医学术语
-2. **专业框架**：后台使用标准临床问诊框架（现病史→既往史→个人史→家族史→用药史），确保信息完整
-3. **动态调整**：根据患者主诉和已回答内容，灵活决定下一个最关键的问题
+1. **针对性提问**：每个问题都必须直接针对患者主诉中的具体症状，不能笼统地问"还有什么"。要像真实医生一样追问关键细节。
+2. **口语化表达**：呈现给患者的问题必须通俗易懂，像日常对话一样自然
+3. **动态编排**：根据主诉中的症状组合，自己判断当前最需要确认什么信息来鉴别诊断
 4. **危险信号优先**：如果患者回答中暗示急危重症，立即终止问诊并建议紧急就医
 
-## 问诊框架（按优先级递进）
+## 问诊策略（你必须遵循的思考过程）
 
-### 第一阶段：现病史（围绕主诉展开）
-- **起病情况**：什么时候开始的？突然还是逐渐？
-- **症状性质**：具体是什么感觉？（如胀痛/刺痛/隐痛）
-- **部位/放射**：哪里不舒服？会不会传到其他部位？
-- **严重程度**：影响日常生活吗？有多难受？
-- **时间特点**：持续存在还是时好时坏？
-- **诱发/缓解**：什么情况下加重或减轻？
-- **伴随症状**：还有其他不舒服吗？
-- **诊治经过**：之前看过医生吗？吃过什么药？
+每次生成问题前，请先分析：
+1. 患者主诉中包含哪些症状？
+2. 这些症状组合可能指向哪些疾病？
+3. 为了鉴别这些疾病，我现在最需要确认什么关键信息？
+4. 设计一个直接获取这个信息的问题
 
-### 第二阶段：既往史
-- **慢性疾病**：有没有高血压、糖尿病、心脏病等慢性病？
-- **手术外伤**：做过手术或受过严重外伤吗？
-- **传染病史**：有没有肝炎、结核等传染病？
-- **过敏史**：对什么药物或食物过敏吗？
+### 示例（你必须学习这种提问方式）
 
-### 第三阶段：个人史
-- **生活习惯**：抽烟喝酒吗？作息规律吗？
-- **职业暴露**：工作环境有没有粉尘、化学品等？
-- **出行情况**：最近有没有去过外地或国外？
+**例1：主诉"头疼还发烧"**
+- 分析：头疼+发烧常见于流感、上呼吸道感染、脑膜炎等
+- 鉴别关键：体温高低、头疼性质、有无脑膜刺激征
+- 第一个问题："您量过体温吗？最高大概多少度？"（获取发热程度）
+- 第二个问题："头疼是胀痛、刺痛还是一跳一跳地疼？"（鉴别血管性/神经性）
+- 第三个问题："脖子转动时疼不疼？有没有恶心呕吐？"（排除脑膜炎）
 
-### 第四阶段：家族史
-- **遗传疾病**：家族里有没有遗传病？
-- **类似疾病**：亲戚里有没有类似症状的？
+**例2：主诉"肚子疼，拉稀三天了"**
+- 分析：腹痛+腹泻常见于肠胃炎、食物中毒等
+- 鉴别关键：大便性状、腹痛位置、有无发热
+- 第一个问题："大便是什么样的？稀水样还是像鼻涕一样有黏液？"（鉴别感染类型）
+- 第二个问题："肚子疼主要是哪个位置？上腹部还是肚脐周围？"（定位病变）
 
-### 第五阶段：用药史
-- **当前用药**：现在在吃什么药吗？（包括保健品）
-- **近期用药**：最近一两周吃过什么药？
+**例3：主诉"胸闷气短，爬楼特别明显"**
+- 分析：活动后胸闷气短可能指向心功能不全、贫血、肺部疾病
+- 鉴别关键：发作诱因、缓解方式、伴随症状
+- 第一个问题："休息一会儿能缓解吗？还是一直闷？"（鉴别心源性/肺源性）
+
+## 问诊框架（参考，不要机械套用）
+
+### 现病史（围绕主诉深入追问）
+- 起病：什么时候开始的？突然还是逐渐？
+- 性质：具体是什么感觉？（如胀痛/刺痛/搏动痛/绞痛）
+- 部位：哪里不舒服？会不会传到其他部位？
+- 程度：影响日常生活吗？1-10分有多难受？
+- 时间规律：持续存在还是时好时坏？白天重还是晚上重？
+- 诱因：什么情况下加重或减轻？
+- 伴随症状：还有其他不舒服吗？
+- 诊疗经过：之前看过医生吗？做过什么检查？吃过什么药？
+
+### 既往史/个人史/家族史/用药史（在现病史问清楚后再简短询问）
 
 ## 输出格式
 请严格返回 JSON，不要有任何额外文本。格式如下：
@@ -281,14 +292,21 @@ INTERVIEW_SYSTEM_PROMPT = """你是一位经验丰富的全科医生，正在通
 }
 ```
 
+## 绝对禁止
+- ❌ "关于您的症状情况，还有什么需要补充的吗？" —— 这种笼统问题没有任何信息量
+- ❌ "还有什么不舒服吗？" —— 太宽泛，患者不知道回答什么
+- ❌ 连续问两个不相关的问题 —— 每次只问一个最关键的问题
+- ❌ 使用"现病史""既往史"等医学术语面向患者提问
+
 ## 规则
 - sufficient=true 时，next_question 必须为 null
 - type="choice" 时，options 必须至少有 2 个选项，选项也要口语化
 - type="text" 时，options 应为空数组 []
-- 问题必须口语化、自然，避免"现病史""既往史"等术语，用"您之前""您有没有"等日常表达
+- 问题必须口语化、自然，用"您"开头，像医生在诊室里问话
 - 如果患者提到胸痛+大汗、呼吸困难、意识模糊、剧烈腹痛等，red_flags 要标记
 - suggested_tools 可在需要查病史或搜资料时填写："query_patient_history" 或 "search_medical_knowledge"
 - 已问过的问题（见已收集信息中的 key）不要再重复问
+- 优先问现病史细节，现病史问清楚后再简短问既往史/用药史
 """
 
 
@@ -303,12 +321,22 @@ def _build_interview_prompt(
 ) -> str:
     """Build the user prompt for LLM interview decision."""
     lines = []
-    lines.append(f"患者主诉：{state.chief_complaint or '未知'}")
+
+    # 【主诉分析】——这是最关键的部分，引导 LLM 针对性问诊
+    lines.append(f"## 患者主诉\n{state.chief_complaint or '未知'}")
     lines.append("")
+
+    # 根据主诉内容给出问诊策略提示
+    chief = state.chief_complaint or ""
+    if chief:
+        lines.append("## 问诊策略提示")
+        lines.append("请先分析主诉中的关键症状，然后设计最有针对性的问题。")
+        lines.append("不要笼统地问‘还有什么补充的’，要像真实医生一样追问具体细节。")
+        lines.append("")
 
     # Show collected info in a structured way
     if state.collected_info:
-        lines.append("【已收集的问诊信息】")
+        lines.append("## 已收集的问诊信息")
         for phase_id in PHASE_ORDER:
             if phase_id.value in state.collected_info:
                 meta = PHASE_META.get(phase_id, {})
@@ -322,7 +350,7 @@ def _build_interview_prompt(
 
     # Show tool results if any
     if tool_results:
-        lines.append("【工具查询结果】")
+        lines.append("## 工具查询结果")
         for tr in tool_results:
             lines.append(f"  工具: {tr.get('tool', 'unknown')}")
             result = tr.get('result', {})
@@ -334,7 +362,7 @@ def _build_interview_prompt(
 
     # Show patient history context if available
     if patient_history:
-        lines.append(f"【患者既往病史】\n{patient_history}\n")
+        lines.append(f"## 患者既往病史\n{patient_history}\n")
 
     lines.append(f"已问 {len(state.asked_questions)} 个问题，最少 {state.min_questions} 个，最多 {state.max_questions} 个。")
     if state.asked_questions:
@@ -360,11 +388,12 @@ def _build_interview_prompt(
     # Decision prompt
     if len(state.asked_questions) < state.min_questions:
         lines.append("尚未达到最少问诊数量，请继续提问。")
+        lines.append("提示：根据主诉中的关键症状，问出能帮助鉴别诊断的具体问题。")
     elif len(state.asked_questions) >= state.max_questions:
         lines.append("已达到最大问诊数量上限，请判定信息是否足够进行初步诊断。")
     else:
-        lines.append("请判断当前信息是否足够进行初步诊断。如果不足够，请生成下一个最关键的问题。")
-        lines.append("建议优先询问尚未覆盖的维度，但也要根据主诉重点深入追问关键信息。")
+        lines.append("请判断当前信息是否足够进行初步诊断。")
+        lines.append("如果不足够，请生成下一个最应该问的具体问题——直接针对主诉中的关键症状，不要笼统。")
 
     return "\n".join(lines)
 
@@ -492,14 +521,121 @@ class DynamicInterviewEngine:
             return self._fallback_question(state), state, []
 
     def _fallback_question(self, state: InterviewState) -> QuestionTemplate:
-        """Generate a generic fallback question based on what's missing."""
-        # Find first unasked phase
+        """Generate a targeted fallback question based on chief complaint when LLM fails."""
+        chief = state.chief_complaint or ""
+
+        # Try to infer the most relevant question from chief complaint keywords
+        chief_lower = chief.lower()
+
+        # Fever-related
+        if any(k in chief_lower for k in ("发烧", "发热", "热", "高烧", "低烧", "退烧")):
+            if "体温" not in state.asked_questions and "温度" not in state.asked_questions:
+                return QuestionTemplate(
+                    question_id="hpi_severity",
+                    question="您量过体温吗？最高大概多少度？",
+                    type="text",
+                    hint="比如 38.5°C 之类的具体数值",
+                    allow_skip=True,
+                    phase="hpi_severity",
+                    colloquial_phase="症状情况",
+                )
+            if any(k in chief_lower for k in ("头疼", "头痛", "头晕")) and "头痛性质" not in state.asked_questions:
+                return QuestionTemplate(
+                    question_id="hpi_character",
+                    question="头疼是怎么个疼法？胀痛、刺痛、还是一跳一跳地疼？",
+                    type="choice",
+                    options=["胀痛或压痛", "刺痛或针扎痛", "一跳一跳的搏动痛", "绞痛或紧箍痛", "说不清楚"],
+                    hint="这有助于判断原因",
+                    allow_skip=True,
+                    phase="hpi_character",
+                    colloquial_phase="症状情况",
+                )
+
+        # Headache-specific (without fever)
+        elif any(k in chief_lower for k in ("头疼", "头痛", "头晕")):
+            if "部位" not in state.asked_questions:
+                return QuestionTemplate(
+                    question_id="hpi_location",
+                    question="头疼主要在哪个位置？前额、后脑勺、两侧还是整个头？",
+                    type="text",
+                    hint="请描述具体位置",
+                    allow_skip=True,
+                    phase="hpi_location",
+                    colloquial_phase="症状情况",
+                )
+
+        # Abdominal pain / diarrhea
+        elif any(k in chief_lower for k in ("肚子疼", "腹痛", "肚疼", "拉肠子", "腹泻", "拉稀", "腹泻")):
+            if "大便性状" not in state.asked_questions:
+                return QuestionTemplate(
+                    question_id="hpi_character",
+                    question="大便是什么样的？稀水样、有黏液、还是像豆腚渣？",
+                    type="text",
+                    hint="这能帮助判断是哪种感染",
+                    allow_skip=True,
+                    phase="hpi_character",
+                    colloquial_phase="症状情况",
+                )
+
+        # Cough / respiratory
+        elif any(k in chief_lower for k in ("咳嗽", "咳", "胸闷", "气短", "呼吸", "咳痰")):
+            if "嗟嚏性质" not in state.asked_questions:
+                return QuestionTemplate(
+                    question_id="hpi_character",
+                    question="咳嗽有痰吗？是白色的痰还是黄色的？",
+                    type="choice",
+                    options=["没有痰，干咳", "白色痰", "黄色或绿色痰", "带血丝的痰", "说不清楚"],
+                    hint="痰的颜色能提供很多信息",
+                    allow_skip=True,
+                    phase="hpi_character",
+                    colloquial_phase="症状情况",
+                )
+
+        # Chest pain / cardiac
+        elif any(k in chief_lower for k in ("胸痛", "胸闷", "心绞痛", "心慌", "心疼")):
+            if "胸痛性质" not in state.asked_questions:
+                return QuestionTemplate(
+                    question_id="hpi_character",
+                    question="胸痛是怎么疼的？压迫感、针刺感、还是烧灼感？",
+                    type="choice",
+                    options=["压着疼或窄着疼", "针扎样刺痛", "烧烬感", "一阵一阵的绞痛", "说不清楚"],
+                    hint="性质很重要",
+                    allow_skip=True,
+                    phase="hpi_character",
+                    colloquial_phase="症状情况",
+                )
+
+        # Default: ask about onset if nothing else fits
+        if "起病时间" not in state.asked_questions and "hpi_onset" not in state.asked_questions:
+            return QuestionTemplate(
+                question_id="hpi_onset",
+                question="这个不舒服是什么时候开始的？突然出现还是慢慢加重的？",
+                type="text",
+                hint="请告诉我大约什么时候开始的",
+                allow_skip=True,
+                phase="hpi_onset",
+                colloquial_phase="症状情况",
+            )
+
+        # If we've asked about onset but nothing else, ask severity
+        if "严重程度" not in state.asked_questions and "hpi_severity" not in state.asked_questions:
+            return QuestionTemplate(
+                question_id="hpi_severity",
+                question="现在这种不舒服影响您正常活动吗？比如上班、吃饭、睡觉？",
+                type="text",
+                hint="请描述对您日常生活的影响",
+                allow_skip=True,
+                phase="hpi_severity",
+                colloquial_phase="症状情况",
+            )
+
+        # Find first unasked standard phase
         for phase in PHASE_ORDER[state.current_phase_index:]:
             if phase.value not in state.collected_info:
                 meta = PHASE_META.get(phase, {})
                 return QuestionTemplate(
                     question_id=phase.value,
-                    question=f"关于您的{meta.get('colloquial', '情况')}，还有什么需要补充的吗？",
+                    question=f"关于您的{meta.get('colloquial', '情况')}，您能简单说说吗？",
                     type="text",
                     hint="可以简单描述，也可以跳过",
                     allow_skip=True,
@@ -510,7 +646,7 @@ class DynamicInterviewEngine:
         # Everything covered
         return QuestionTemplate(
             question_id=f"fallback_{len(state.asked_questions)}",
-            question="还有其他不舒服或者想告诉医生的情况吗？",
+            question="还有其他您觉得医生需要知道的情况吗？",
             type="text",
             hint="任何您觉得和这次不适有关的情况都可以说",
             allow_skip=True,
