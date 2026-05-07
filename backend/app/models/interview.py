@@ -307,6 +307,12 @@ INTERVIEW_SYSTEM_PROMPT = """你是一位经验丰富的全科医生，正在通
 - suggested_tools 可在需要查病史或搜资料时填写："query_patient_history" 或 "search_medical_knowledge"
 - 已问过的问题（见已收集信息中的 key）不要再重复问
 - 优先问现病史细节，现病史问清楚后再简短问既往史/用药史
+
+## 关键规则（必须严格遵守）
+- sufficient=true 时，next_question 必须为 null
+- **sufficient=false 时，next_question 必须不为 null，必须提供一个具体的下一个问题**
+- 如果当前不满足 sufficient=true 的条件（覆盖 <5 个现病史维度 或 问 <5 个问题），你必须设置 sufficient=false 并提供一个 next_question
+- 绝不要在不满足条件时返回 sufficient=true 和 next_question=null
 """
 
 
