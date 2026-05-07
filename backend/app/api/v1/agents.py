@@ -50,7 +50,12 @@ def _diagnosis_report_to_markdown(report: dict[str, Any]) -> str:
     if report.get("differential_diagnoses"):
         lines.append("### \ud83d\udd0d \u9274\u522b\u8bca\u65ad")
         for d in report["differential_diagnoses"]:
-            lines.append("- " + str(d))
+            if isinstance(d, dict):
+                diag_name = d.get("diagnosis", "")
+                reasoning = d.get("reasoning", "")
+                lines.append(f"- **{diag_name}**: {reasoning}")
+            else:
+                lines.append("- " + str(d))
         lines.append("")
 
     severity = report.get("severity", _unknown)

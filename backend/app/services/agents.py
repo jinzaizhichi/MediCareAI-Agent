@@ -36,14 +36,22 @@ from app.tools.registry import GLOBAL_REGISTRY
 # Structured Output Schemas
 # ---------------------------------------------------------------------------
 
+class DifferentialDiagnosis(BaseModel):
+    """Single differential diagnosis entry."""
+
+    diagnosis: str = Field(..., description="Name of the alternative diagnosis")
+    icd11_code: str = Field(default="", description="ICD-11 code if known")
+    reasoning: str = Field(default="", description="Why this diagnosis is plausible or should be ruled out")
+
+
 class DiagnosisReport(BaseModel):
     """Structured diagnosis report — PROPOSAL §5.2."""
 
     primary_diagnosis: str = Field(..., description="Most likely diagnosis based on symptoms and context")
-    differential_diagnoses: list[str] = Field(
+    differential_diagnoses: list[DifferentialDiagnosis] = Field(
         default_factory=list,
         description="List of alternative diagnoses that should be considered and ruled out. "
-                    "Always include 2-5 plausible alternatives with brief reasoning.",
+                    "Always include 2-5 plausible alternatives with reasoning.",
     )
     confidence: str = Field(..., pattern="^(high|medium|low)$", description="Confidence level in the primary diagnosis")
     severity: str = Field(..., pattern="^(mild|moderate|severe|emergency)$", description="Severity assessment of the condition")

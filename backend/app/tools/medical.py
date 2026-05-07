@@ -301,7 +301,9 @@ generate a structured diagnosis report in the exact JSON format below.
 REQUIRED JSON STRUCTURE:
 {
   "primary_diagnosis": "string (most likely diagnosis)",
-  "differential_diagnoses": ["string", "string"],
+  "differential_diagnoses": [
+    {"diagnosis": "string", "icd11_code": "string", "reasoning": "string"}
+  ],
   "confidence": "high|medium|low",
   "severity": "mild|moderate|severe|emergency",
   "key_findings": ["string"],
@@ -318,6 +320,7 @@ RULES:
 - Be specific and evidence-based.
 - Always include the disclaimer that this is AI-assisted, not definitive.
 - If information is insufficient, state so explicitly in key_findings.
+- For differential_diagnoses, always provide at least 2-5 alternatives with reasoning.
 - Output ONLY valid JSON, no markdown formatting."""
 
         user_msg = f"症状: {symptoms}"
