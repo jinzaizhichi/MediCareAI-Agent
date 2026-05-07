@@ -276,7 +276,9 @@ export default function ChatPage() {
                   type: 'thinking',
                   status: 'done',
                   title: '📋 已收集问诊信息',
-                  detail: Object.entries(event.data?.collected as Record<string, unknown> || {}).map(([k, v]) => `${k}: ${v}`).join(', '),
+                  detail: Object.entries(event.data?.collected as Record<string, unknown> || {})
+                    .filter(([k]) => !k.startsWith('__'))
+                    .map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(', '),
                 });
                 break;
               }
@@ -482,7 +484,9 @@ export default function ChatPage() {
                   type: 'thinking',
                   status: 'done',
                   title: '📋 已收集问诊信息',
-                  detail: Object.entries(event.data?.collected as Record<string, unknown> || {}).map(([k, v]) => `${k}: ${v}`).join(', '),
+                  detail: Object.entries(event.data?.collected as Record<string, unknown> || {})
+                    .filter(([k]) => !k.startsWith('__'))
+                    .map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(', '),
                 });
                 break;
               }
