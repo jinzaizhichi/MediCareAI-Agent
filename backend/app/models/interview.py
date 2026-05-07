@@ -529,7 +529,12 @@ class DynamicInterviewEngine:
 
         # Fever-related
         if any(k in chief_lower for k in ("发烧", "发热", "热", "高烧", "低烧", "退烧")):
-            if "体温" not in state.asked_questions and "温度" not in state.asked_questions:
+            # Check if we already have temperature info (by question_id or collected key)
+            temp_already_asked = any(
+                q in state.asked_questions or q in state.collected_info
+                for q in ("hpi_severity", "体温", "温度")
+            )
+            if not temp_already_asked:
                 return QuestionTemplate(
                     question_id="hpi_severity",
                     question="您量过体温吗？最高大概多少度？",
@@ -539,21 +544,31 @@ class DynamicInterviewEngine:
                     phase="hpi_severity",
                     colloquial_phase="症状情况",
                 )
-            if any(k in chief_lower for k in ("头疼", "头痛", "头晕")) and "头痛性质" not in state.asked_questions:
-                return QuestionTemplate(
-                    question_id="hpi_character",
-                    question="头疼是怎么个疼法？胀痛、刺痛、还是一跳一跳地疼？",
-                    type="choice",
-                    options=["胀痛或压痛", "刺痛或针扎痛", "一跳一跳的搏动痛", "绞痛或紧箍痛", "说不清楚"],
-                    hint="这有助于判断原因",
-                    allow_skip=True,
-                    phase="hpi_character",
-                    colloquial_phase="症状情况",
+            # If temp asked, check headache character for fever+headache combo
+            if any(k in chief_lower for k in ("头疼", "头痛", "头晕")):
+                headache_already_asked = any(
+                    q in state.asked_questions or q in state.collected_info
+                    for q in ("hpi_character", "头痛性质", "疼痛性质")
                 )
+                if not headache_already_asked:
+                    return QuestionTemplate(
+                        question_id="hpi_character",
+                        question="头疼是怎么个疼法？胀痛、刺痛、还是一跳一跳地疼？",
+                        type="choice",
+                        options=["胀痛或压痛", "刺痛或针扎痛", "一跳一跳的搏动痛", "绞痛或紧箍痛", "说不清楚"],
+                        hint="这有助于判断原因",
+                        allow_skip=True,
+                        phase="hpi_character",
+                        colloquial_phase="症状情况",
+                    )
 
         # Headache-specific (without fever)
         elif any(k in chief_lower for k in ("头疼", "头痛", "头晕")):
-            if "部位" not in state.asked_questions:
+            location_already_asked = any(
+                q in state.asked_questions or q in state.collected_info
+                for q in ("hpi_location", "部位", "头疼部位")
+            )
+            if not location_already_asked:
                 return QuestionTemplate(
                     question_id="hpi_location",
                     question="头疼主要在哪个位置？前额、后脑勺、两侧还是整个头？",
@@ -566,7 +581,11 @@ class DynamicInterviewEngine:
 
         # Abdominal pain / diarrhea
         elif any(k in chief_lower for k in ("肚子疼", "腹痛", "肚疼", "拉肠子", "腹泻", "拉稀", "腹泻")):
-            if "大便性状" not in state.asked_questions:
+            stool_already_asked = any(
+                q in state.asked_questions or q in state.collected_info
+                for q in ("hpi_character", "大便性状", "大便")
+            )
+            if not stool_already_asked:
                 return QuestionTemplate(
                     question_id="hpi_character",
                     question="大便是什么样的？稀水样、有黏液、还是像豆腚渣？",
@@ -579,7 +598,11 @@ class DynamicInterviewEngine:
 
         # Cough / respiratory
         elif any(k in chief_lower for k in ("咳嗽", "咳", "胸闷", "气短", "呼吸", "咳痰")):
-            if "嗟嚏性质" not in state.asked_questions:
+            sputum_already_asked = any(
+                q in state.asked_questions or q in state.collected_info
+                for q in ("hpi_character", "嗟嚏性质", "嗟嗽", "痰")
+            )
+            if not sputum_already_asked:
                 return QuestionTemplate(
                     question_id="hpi_character",
                     question="咳嗽有痰吗？是白色的痰还是黄色的？",
@@ -593,12 +616,16 @@ class DynamicInterviewEngine:
 
         # Chest pain / cardiac
         elif any(k in chief_lower for k in ("胸痛", "胸闷", "心绞痛", "心慌", "心疼")):
-            if "胸痛性质" not in state.asked_questions:
+            chest_pain_already_asked = any(
+                q in state.asked_questions or q in state.collected_info
+                for q in ("hpi_character", "胸痛性质", "胸痛")
+            )
+            if not chest_pain_already_asked:
                 return QuestionTemplate(
                     question_id="hpi_character",
                     question="胸痛是怎么疼的？压迫感、针刺感、还是烧灼感？",
                     type="choice",
-                    options=["压着疼或窄着疼", "针扎样刺痛", "烧烬感", "一阵一阵的绞痛", "说不清楚"],
+                    options=["压着疼或窄着疼", "针扎样刺痛", "烧灼感", "一阵一阵的绞痛", "说不清楚"],
                     hint="性质很重要",
                     allow_skip=True,
                     phase="hpi_character",
