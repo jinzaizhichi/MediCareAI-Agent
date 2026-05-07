@@ -535,7 +535,11 @@ class DynamicInterviewEngine:
 
         except Exception as exc:
             # LLM failed — fallback
-            if len(state.asked_questions) >= 3:
+            # CRITICAL: Don't end interview just because LLM failed
+            # Only end if max_questions reached or sufficient HPI coverage
+            hpi_phases = [p.value for p in PHASE_ORDER[:8]]
+            hpi_covered = sum(1 for p in hpi_phases if p in state.collected_info)
+            if len(state.asked_questions) >= state.max_questions or (hpi_covered >= 5 and len(state.asked_questions) >= 5):
                 state.is_sufficient = True
                 state.current_question_id = None
                 return None, state, []
