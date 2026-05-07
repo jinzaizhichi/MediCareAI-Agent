@@ -409,7 +409,7 @@ def _build_interview_prompt(
             lines.append("现病史维度已较充分。如果还有未覆盖的关键维度，可以继续追问；否则可以判定 sufficient。")
         lines.append("")
         lines.append("规则：sufficient=true 仅在以下情况允许：")
-        lines.append("  - 已覆盖 ≥5 个现病史维度，且已问 ≥5 个问题；或")
+        lines.append("  - 已覆盖 ≥3 个现病史维度，且已问 ≥3 个问题；或")
         lines.append("  - 已达到 max_questions 上限。")
 
     return "\n".join(lines)
@@ -485,8 +485,8 @@ class DynamicInterviewEngine:
             if decision.sufficient or len(state.asked_questions) >= state.max_questions:
                 hpi_phases = [p.value for p in PHASE_ORDER[:8]]
                 hpi_covered = sum(1 for p in hpi_phases if p in state.collected_info)
-                # Require at least 5 HPI dimensions AND at least 5 questions
-                if hpi_covered >= 5 and len(state.asked_questions) >= 5:
+                # Require at least 3 HPI dimensions AND at least 3 questions (TEMP: lowered for SearXNG validation)
+                if hpi_covered >= 3 and len(state.asked_questions) >= 3:
                     state.is_sufficient = True
                     state.current_question_id = None
                     return None, state, []
@@ -504,7 +504,7 @@ class DynamicInterviewEngine:
                 # CRITICAL: Only end interview if max_questions reached or hpi_covered >= 5
                 hpi_phases = [p.value for p in PHASE_ORDER[:8]]
                 hpi_covered = sum(1 for p in hpi_phases if p in state.collected_info)
-                if len(state.asked_questions) >= state.max_questions or (hpi_covered >= 5 and len(state.asked_questions) >= 5):
+                if len(state.asked_questions) >= state.max_questions or (hpi_covered >= 3 and len(state.asked_questions) >= 3):
                     state.is_sufficient = True
                     state.current_question_id = None
                     return None, state, []

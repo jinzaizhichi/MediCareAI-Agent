@@ -605,13 +605,22 @@ SAFETY:
 
         # STEP 1: ALWAYS search medical knowledge before diagnosis
         # This ensures evidence-based diagnosis, not just LLM parametric knowledge
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"[SEARXNG_DEBUG] Starting search_medical_knowledge with query: {enriched_symptoms[:100]}...")
+        
         search_result = await GLOBAL_REGISTRY.execute(
             "search_medical_knowledge",
             {"query": enriched_symptoms, "top_k": 5},
         )
+        logger.info(f"[SEARXNG_DEBUG] Search result type: {type(search_result)}, has answer: {bool(search_result) if search_result else False}")
+        
         knowledge_context = ""
         if isinstance(search_result, dict):
             knowledge_context = search_result.get("answer", "")
+            logger.info(f"[SEARXNG_DEBUG] Knowledge context length: {len(knowledge_context)}")
+        else:
+            logger.warning(f"[SEARXNG_DEBUG] Unexpected search result type: {type(search_result)}, value: {str(search_result)[:200]}")
 
         # STEP 2: Run diagnosis analysis WITH knowledge context
         diag_result = await self.analyze(
@@ -621,6 +630,17 @@ SAFETY:
             session_id=session_id,
             knowledge_context=knowledge_context,
         )
+
+        # Attach the search tool call to the result so frontend can see it
+        search_tool_call = {
+            "tool": "search_medical_knowledge",
+            "arguments": {"query": enriched_symptoms, "top_k": 5},
+            "result": search_result if search_result else {},
+        }
+        if diag_result.tool_calls_used is None:
+            diag_result.tool_calls_used = []
+        # Insert search at the beginning so it appears first
+        diag_result.tool_calls_used.insert(0, search_tool_call)
 
         return diag_result
 
