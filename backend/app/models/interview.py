@@ -495,11 +495,14 @@ class DynamicInterviewEngine:
 
             if decision.next_question is None:
                 # LLM says not sufficient but gave no question — fallback
-                if len(state.asked_questions) >= 3:
+                # CRITICAL: Only end interview if max_questions reached or hpi_covered >= 5
+                hpi_phases = [p.value for p in PHASE_ORDER[:8]]
+                hpi_covered = sum(1 for p in hpi_phases if p in state.collected_info)
+                if len(state.asked_questions) >= state.max_questions or (hpi_covered >= 5 and len(state.asked_questions) >= 5):
                     state.is_sufficient = True
                     state.current_question_id = None
                     return None, state, []
-                # Generate a generic fallback
+                # Generate a targeted fallback question
                 return self._fallback_question(state), state, []
 
             q = decision.next_question
