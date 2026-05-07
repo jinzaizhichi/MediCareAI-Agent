@@ -295,10 +295,10 @@ OUTPUT (search query only):"""
         response = await llm.chat(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
-            max_tokens=100,
+            max_tokens=300,
         )
 
-        query = response.content.strip() if response and response.content else str(response).strip()
+        query = response.content.strip() if response and response.content else ""
         # Remove quotes if present
         query = query.strip('"\'')
         # Fallback if LLM returns empty or malformed
