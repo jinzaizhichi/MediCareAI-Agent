@@ -1,13 +1,15 @@
-"""Medical Interview (multi-turn questioning) models — Clinical Standard Edition.
+"""Medical Interview (multi-turn questioning) models — Differential-Diagnosis-Driven Edition.
 
-LLM-driven dynamic interview engine with standard Chinese clinical intake framework.
+LLM-driven dynamic interview engine with differential-diagnosis-guided questioning.
+The Agent maintains an internal list of hypotheses and actively seeks information
+to confirm or rule out each hypothesis.
 
 DESIGN PRINCIPLES:
-1. Backend tracks clinical dimensions using standard medical terminology (HPI, PMH, etc.)
-2. Questions presented to patients are colloquial and easy to understand
-3. Patient answers are natural language; LLM extracts structured medical info
-4. Tool calls (patient history lookup, knowledge search) can happen DURING interview
-5. Red flags detected at any phase trigger immediate escalation
+1. The Agent THINKS like a clinician: differential diagnoses → key features → targeted questions
+2. No fixed linear phase order — the Agent decides what to ask based on clinical reasoning
+3. InterviewPhase is used only as an information category tag, not a sequence constraint
+4. Questions are colloquial; answers are natural language extracted into structured features
+5. Red flags detected at any point trigger immediate escalation
 """
 
 from __future__ import annotations
@@ -22,67 +24,43 @@ from pydantic import BaseModel, Field
 
 
 # ---------------------------------------------------------------------------
-# Interview Phase Definitions (standard clinical framework)
+# Interview Phase Definitions (information categories only — NOT sequential)
 # ---------------------------------------------------------------------------
 
 class InterviewPhase(str, PyEnum):
-    """Standard clinical interview phases, in order."""
+    """Clinical information categories. These are NOT a fixed sequence."""
 
-    # Phase 1: Chief Complaint & Present Illness (现病史)
-    HPI_ONSET = "hpi_onset"           # 起病情况
-    HPI_QUALITY = "hpi_quality"       # 症状性质
-    HPI_LOCATION = "hpi_location"     # 部位/放射
-    HPI_SEVERITY = "hpi_severity"     # 严重程度
-    HPI_TIMING = "hpi_timing"         # 时间特点
-    HPI_AGGRAVATE = "hpi_aggravate"   # 诱发/缓解因素
-    HPI_ASSOCIATED = "hpi_associated" # 伴随症状
-    HPI_TREATMENT = "hpi_treatment"   # 诊治经过
+    # Present Illness
+    HPI_ONSET = "hpi_onset"
+    HPI_QUALITY = "hpi_quality"
+    HPI_LOCATION = "hpi_location"
+    HPI_SEVERITY = "hpi_severity"
+    HPI_TIMING = "hpi_timing"
+    HPI_AGGRAVATE = "hpi_aggravate"
+    HPI_ASSOCIATED = "hpi_associated"
+    HPI_TREATMENT = "hpi_treatment"
 
-    # Phase 2: Past Medical History (既往史)
-    PMH_CHRONIC = "pmh_chronic"       # 慢性疾病
-    PMH_SURGERY = "pmh_surgery"       # 手术外伤
-    PMH_INFECTION = "pmh_infection"   # 传染病
-    PMH_ALLERGY = "pmh_allergy"       # 过敏史
+    # Past Medical History
+    PMH_CHRONIC = "pmh_chronic"
+    PMH_SURGERY = "pmh_surgery"
+    PMH_INFECTION = "pmh_infection"
+    PMH_ALLERGY = "pmh_allergy"
 
-    # Phase 3: Personal History (个人史)
-    PS_LIFESTYLE = "ps_lifestyle"     # 吸烟饮酒
-    PS_OCCUPATION = "ps_occupation"   # 职业暴露
-    PS_TRAVEL = "ps_travel"           # 旅居史
+    # Personal History
+    PS_LIFESTYLE = "ps_lifestyle"
+    PS_OCCUPATION = "ps_occupation"
+    PS_TRAVEL = "ps_travel"
 
-    # Phase 4: Family History (家族史)
-    FH_GENETIC = "fh_genetic"         # 遗传病
-    FH_SIMILAR = "fh_similar"         # 类似疾病
+    # Family History
+    FH_GENETIC = "fh_genetic"
+    FH_SIMILAR = "fh_similar"
 
-    # Phase 5: Medication History (用药史)
-    MED_CURRENT = "med_current"       # 当前用药
-    MED_RECENT = "med_recent"         # 近期用药
+    # Medication History
+    MED_CURRENT = "med_current"
+    MED_RECENT = "med_recent"
 
-    # Terminal phase
+    # Terminal
     COMPLETE = "complete"
-
-
-# Ordered phases for progressive interview
-PHASE_ORDER: list[InterviewPhase] = [
-    InterviewPhase.HPI_ONSET,
-    InterviewPhase.HPI_QUALITY,
-    InterviewPhase.HPI_LOCATION,
-    InterviewPhase.HPI_SEVERITY,
-    InterviewPhase.HPI_TIMING,
-    InterviewPhase.HPI_AGGRAVATE,
-    InterviewPhase.HPI_ASSOCIATED,
-    InterviewPhase.HPI_TREATMENT,
-    InterviewPhase.PMH_CHRONIC,
-    InterviewPhase.PMH_SURGERY,
-    InterviewPhase.PMH_INFECTION,
-    InterviewPhase.PMH_ALLERGY,
-    InterviewPhase.PS_LIFESTYLE,
-    InterviewPhase.PS_OCCUPATION,
-    InterviewPhase.PS_TRAVEL,
-    InterviewPhase.FH_GENETIC,
-    InterviewPhase.FH_SIMILAR,
-    InterviewPhase.MED_CURRENT,
-    InterviewPhase.MED_RECENT,
-]
 
 
 # Phase metadata: medical ID → { category, colloquial_category }
@@ -109,22 +87,79 @@ PHASE_META: dict[InterviewPhase, dict[str, str]] = {
 }
 
 
+# Optional reference order for completeness checking (NOT a strict sequence)
+PHASE_ORDER: list[InterviewPhase] = [
+    InterviewPhase.HPI_ONSET,
+    InterviewPhase.HPI_QUALITY,
+    InterviewPhase.HPI_LOCATION,
+    InterviewPhase.HPI_SEVERITY,
+    InterviewPhase.HPI_TIMING,
+    InterviewPhase.HPI_AGGRAVATE,
+    InterviewPhase.HPI_ASSOCIATED,
+    InterviewPhase.HPI_TREATMENT,
+    InterviewPhase.PMH_CHRONIC,
+    InterviewPhase.PMH_SURGERY,
+    InterviewPhase.PMH_INFECTION,
+    InterviewPhase.PMH_ALLERGY,
+    InterviewPhase.PS_LIFESTYLE,
+    InterviewPhase.PS_OCCUPATION,
+    InterviewPhase.PS_TRAVEL,
+    InterviewPhase.FH_GENETIC,
+    InterviewPhase.FH_SIMILAR,
+    InterviewPhase.MED_CURRENT,
+    InterviewPhase.MED_RECENT,
+]
+
+
 # ---------------------------------------------------------------------------
-# Data Models
+# Differential Diagnosis Models
 # ---------------------------------------------------------------------------
+
+@dataclass
+class DifferentialHypothesis:
+    """A single differential diagnosis hypothesis maintained by the Agent."""
+
+    diagnosis: str
+    confidence: str = "low"  # high | medium | low
+    key_features: list[str] = field(default_factory=list)
+    supporting_evidence: list[str] = field(default_factory=list)
+    refuting_evidence: list[str] = field(default_factory=list)
+    reason: str = ""  # Why this diagnosis is considered
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "diagnosis": self.diagnosis,
+            "confidence": self.confidence,
+            "key_features": self.key_features,
+            "supporting_evidence": self.supporting_evidence,
+            "refuting_evidence": self.refuting_evidence,
+            "reason": self.reason,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "DifferentialHypothesis":
+        return cls(
+            diagnosis=data.get("diagnosis", ""),
+            confidence=data.get("confidence", "low"),
+            key_features=data.get("key_features", []),
+            supporting_evidence=data.get("supporting_evidence", []),
+            refuting_evidence=data.get("refuting_evidence", []),
+            reason=data.get("reason", ""),
+        )
+
 
 @dataclass
 class QuestionTemplate:
     """A single interview question."""
 
-    question_id: str        # e.g. "hpi_onset" (medical identifier)
-    question: str           # Colloquial text shown to patient
-    type: str               # "choice" or "text"
+    question_id: str
+    question: str
+    type: str  # "choice" or "text"
     options: list[str] = field(default_factory=list)
-    hint: str = ""          # Helpful hint for patient
+    hint: str = ""
     allow_skip: bool = True
-    phase: str = ""         # Clinical phase for tracking
-    colloquial_phase: str = ""  # Friendly phase name
+    phase: str = ""
+    colloquial_phase: str = ""
 
 
 @dataclass
@@ -141,10 +176,14 @@ class InterviewState:
     is_sufficient: bool = False
     max_questions: int = 12          # Soft upper limit
     min_questions: int = 3           # Minimum before allowing completion
-    current_phase_index: int = 0     # Index into PHASE_ORDER
+    current_phase_index: int = 0     # Kept for backward compat; not used as sequence constraint
     red_flags_detected: list[str] = field(default_factory=list)
     # Tool calls made during interview
     interview_tool_calls: list[dict[str, Any]] = field(default_factory=list)
+
+    # Internal keys for storing differential diagnosis info in collected_info (DB compatibility)
+    _DIFF_KEY = "__differential_diagnoses__"
+    _FEATURES_KEY = "__confirmed_features__"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -177,16 +216,40 @@ class InterviewState:
             interview_tool_calls=data.get("interview_tool_calls", []),
         )
 
+    # ---- Differential diagnosis helpers (store in collected_info for compatibility) ----
+
+    def get_differential_diagnoses(self) -> list[DifferentialHypothesis]:
+        raw = self.collected_info.get(self._DIFF_KEY, [])
+        if isinstance(raw, list):
+            return [DifferentialHypothesis.from_dict(d) for d in raw]
+        return []
+
+    def set_differential_diagnoses(self, diffs: list[DifferentialHypothesis]) -> None:
+        self.collected_info[self._DIFF_KEY] = [d.to_dict() for d in diffs]
+
+    def get_confirmed_features(self) -> dict[str, Any]:
+        return self.collected_info.get(self._FEATURES_KEY, {})
+
+    def set_confirmed_features(self, features: dict[str, Any]) -> None:
+        self.collected_info[self._FEATURES_KEY] = features
+
     def get_summary(self) -> str:
         """Generate a concise medical summary from collected info."""
         lines = [f"主诉: {self.chief_complaint}"]
         for phase_id in PHASE_ORDER:
-            if phase_id.value in self.collected_info:
+            if phase_id.value in self.collected_info and not phase_id.value.startswith("__"):
                 meta = PHASE_META.get(phase_id, {})
                 cat = meta.get("cat", phase_id.value)
                 val = self.collected_info[phase_id.value]
                 if val and val not in ("无", "没有", "不清楚", "不记得"):
                     lines.append(f"  {cat} [{phase_id.value}]: {val}")
+        # Add differential diagnoses summary
+        diffs = self.get_differential_diagnoses()
+        if diffs:
+            lines.append("  鉴别诊断:")
+            for d in diffs[:5]:
+                flag = "✓" if d.confidence == "high" else "?" if d.confidence == "medium" else "×"
+                lines.append(f"    {flag} {d.diagnosis} ({d.confidence})")
         if self.red_flags_detected:
             lines.append(f"  ⚠️ 危险信号: {', '.join(self.red_flags_detected)}")
         return "\n".join(lines)
@@ -195,6 +258,17 @@ class InterviewState:
 # ---------------------------------------------------------------------------
 # LLM Output Schemas
 # ---------------------------------------------------------------------------
+
+class DifferentialDiagnosisEntry(BaseModel):
+    """A single differential diagnosis entry in LLM output."""
+
+    diagnosis: str = Field(..., description="疾病名称")
+    confidence: str = Field(..., pattern="^(high|medium|low)$", description="当前置信度")
+    key_features: list[str] = Field(default_factory=list, description="该诊断的关键鉴别特征")
+    confirmed_features: list[str] = Field(default_factory=list, description="已确认的支持特征")
+    missing_features: list[str] = Field(default_factory=list, description="尚未确认的关键特征")
+    reason: str = Field(default="", description="为什么考虑这个诊断")
+
 
 class NextQuestionSchema(BaseModel):
     """Schema for the next question generated by LLM."""
@@ -209,110 +283,187 @@ class NextQuestionSchema(BaseModel):
 
 
 class InterviewDecision(BaseModel):
-    """LLM output: whether we have enough info and what to ask next."""
+    """LLM output: differential diagnoses, next question, sufficiency."""
 
     sufficient: bool = Field(..., description="是否已收集足够信息进行初步诊断")
+    differential_diagnoses: list[DifferentialDiagnosisEntry] = Field(
+        default_factory=list,
+        description="当前鉴别诊断列表，按可能性排序。每个诊断包含关键特征和确认状态。",
+    )
     next_question: NextQuestionSchema | None = Field(default=None, description="下一个问题（sufficient=false 时必填）")
-    reasoning: str = Field(default="", description="问诊决策的简要说明")
-    red_flags: list[str] = Field(default_factory=list, description="检测到的危险信号，如有则应立即建议就医")
-    suggested_tools: list[str] = Field(default_factory=list, description="建议调用的工具，如 query_patient_history, search_medical_knowledge")
+    reasoning: str = Field(default="", description="完整的问诊决策思考过程")
+    red_flags: list[str] = Field(default_factory=list, description="检测到的危险信号")
+    suggested_tools: list[str] = Field(default_factory=list, description="建议调用的工具")
 
 
 # ---------------------------------------------------------------------------
-# System Prompt for Clinical Interview
+# System Prompt for Differential-Diagnosis-Driven Interview
 # ---------------------------------------------------------------------------
 
 INTERVIEW_SYSTEM_PROMPT = """你是一位经验丰富的全科医生，正在通过对话为患者进行智能问诊。
 
 ## 核心原则
-1. **针对性提问**：每个问题都必须直接针对患者主诉中的具体症状，不能笼统地问"还有什么"。要像真实医生一样追问关键细节。
-2. **口语化表达**：呈现给患者的问题必须通俗易懂，像日常对话一样自然
-3. **动态编排**：根据主诉中的症状组合，自己判断当前最需要确认什么信息来鉴别诊断
-4. **危险信号优先**：如果患者回答中暗示急危重症，立即终止问诊并建议紧急就医
+1. 【鉴别诊断驱动】每次提问前，必须先思考患者主诉最可能是哪几种疾病，然后设计问题来确认或排除这些疾病。
+2. 【一个问题一个目标】每个问题必须是为了获取某个鉴别诊断的关键特征，不能笼统地问"还有什么"。
+3. 【口语化表达】问题必须通俗易懂，像真实医生在诊室里问话，用"您"开头。
+4. 【优先选择题】尽量设计选择题，让患者点击回答；只有在需要具体数值或描述时才用开放性问题。
 
-## 问诊策略（你必须遵循的思考过程）
+## 你的思考过程（必须在 reasoning 字段中详细写出）
 
-每次生成问题前，请先分析：
-1. 患者主诉中包含哪些症状？
-2. 这些症状组合可能指向哪些疾病？
-3. 为了鉴别这些疾病，我现在最需要确认什么关键信息？
-4. 设计一个直接获取这个信息的问题
+每次生成问题前，请严格按以下步骤思考并在 reasoning 中写出：
 
-### 示例（你必须学习这种提问方式）
+### 步骤1：主诉分析
+- 患者说了什么？
+- 提取所有症状和关键信息。
 
-**例1：主诉"头疼还发烧"**
-- 分析：头疼+发烧常见于流感、上呼吸道感染、脑膜炎等
-- 鉴别关键：体温高低、头疼性质、有无脑膜刺激征
-- 第一个问题："您量过体温吗？最高大概多少度？"（获取发热程度）
-- 第二个问题："头疼是胀痛、刺痛还是一跳一跳地疼？"（鉴别血管性/神经性）
-- 第三个问题："脖子转动时疼不疼？有没有恶心呕吐？"（排除脑膜炎）
+### 步骤2：鉴别诊断
+- 基于现有信息，列出3-5个最可能的诊断，按可能性排序。
+- 对每个诊断，说明为什么考虑它。
 
-**例2：主诉"肚子疼，拉稀三天了"**
-- 分析：腹痛+腹泻常见于肠胃炎、食物中毒等
-- 鉴别关键：大便性状、腹痛位置、有无发热
-- 第一个问题："大便是什么样的？稀水样还是像鼻涕一样有黏液？"（鉴别感染类型）
-- 第二个问题："肚子疼主要是哪个位置？上腹部还是肚脐周围？"（定位病变）
+### 步骤3：信息缺口分析
+- 对每个鉴别诊断，哪些关键特征已经确认了？
+- 哪些关键特征还没有确认？
+- 哪个缺失特征最能帮助区分这些诊断？
 
-**例3：主诉"胸闷气短，爬楼特别明显"**
-- 分析：活动后胸闷气短可能指向心功能不全、贫血、肺部疾病
-- 鉴别关键：发作诱因、缓解方式、伴随症状
-- 第一个问题："休息一会儿能缓解吗？还是一直闷？"（鉴别心源性/肺源性）
+### 步骤4：设计问题
+- 设计一个能获取最关键缺失特征的问题。
+- 优先使用选择题（给出明确的选项）。
+- 选项要口语化，覆盖常见情况。
 
-## 问诊框架（参考，不要机械套用）
+---
 
-### 现病史（围绕主诉深入追问）
-- 起病：什么时候开始的？突然还是逐渐？
-- 性质：具体是什么感觉？（如胀痛/刺痛/搏动痛/绞痛）
-- 部位：哪里不舒服？会不会传到其他部位？
-- 程度：影响日常生活吗？1-10分有多难受？
-- 时间规律：持续存在还是时好时坏？白天重还是晚上重？
-- 诱因：什么情况下加重或减轻？
-- 伴随症状：还有其他不舒服吗？
-- 诊疗经过：之前看过医生吗？做过什么检查？吃过什么药？
+## 示例（你必须学习这种思考方式）
 
-### 既往史/个人史/家族史/用药史（在现病史问清楚后再简短询问）
+### 示例1：主诉"头疼还发烧"
+
+**步骤1：主诉分析**
+患者主诉头疼和发烧，两个症状同时出现。
+
+**步骤2：鉴别诊断**
+1. 流感/急性上呼吸道感染（最可能）— 常有全身症状
+2. 病毒性脑膜炎 — 需警惕，头痛伴发热需排除
+3. 急性鼻窦炎 — 面部压痛，脓涕
+4. 新冠病毒感染 — 流行期需考虑
+
+**步骤3：信息缺口**
+- 体温具体数值？（区分低热/高热）
+- 头痛性质？（胀痛常见于感染，剧烈头痛需警惕脑膜炎）
+- 有无呼吸道症状？（咽痛、咳嗽支持上感）
+- 有无颈部僵硬/恶心呕吐？（脑膜炎警示信号）
+
+**步骤4：问题设计**
+next_question:
+  question_id: "hpi_severity"
+  question: "您量过体温吗？最高大概多少度？"
+  type: "text"
+  hint: "比如38.5°C，这能帮助判断严重程度"
+  reason: "首先需要确认发热程度，高热(>39°C)需更警惕"
+
+→ 患者回答"38.8度"后：
+
+**步骤2更新：**
+1. 流感/急性上呼吸道感染（最可能）— 高热支持
+2. 病毒性脑膜炎 — 不能排除，需确认神经系统症状
+3. 新冠病毒感染 — 需确认流行病学史
+
+**步骤3更新：**
+- 已确认：高热38.8°C
+- 未确认：头痛性质、呼吸道症状、神经系统症状
+- 最关键缺口：是否有脑膜刺激征（因为高热+头痛是危险组合）
+
+**步骤4更新：**
+next_question:
+  question_id: "hpi_associated"
+  question: "除了头疼发烧，您还有以下哪些症状？"
+  type: "choice"
+  options: ["嗓子疼或咳嗽", "浑身肌肉酸痛", "恶心呕吐", "脖子僵硬转动疼", "以上都没有"]
+  hint: "可多选，选最符合的"
+  reason: "需要鉴别上呼吸道感染 vs 脑膜炎；恶心呕吐和颈强直是脑膜炎警示信号"
+
+---
+
+### 示例2：主诉"肚子疼，拉稀三天了"
+
+**步骤2：鉴别诊断**
+1. 急性胃肠炎（最可能）
+2. 食物中毒
+3. 细菌性痢疾
+4. 肠易激综合征急性发作
+
+**步骤3：信息缺口**
+- 大便性状（水样/黏液/脓血）
+- 腹痛位置
+- 有无发热
+- 进食可疑食物史
+
+**步骤4：问题设计**
+next_question:
+  question_id: "hpi_quality"
+  question: "大便是什么样的？"
+  type: "choice"
+  options: ["稀水样", "像鼻涕一样有黏液", "带血或像果酱", "次数多但每次量少", "说不清楚"]
+  hint: "大便性状能区分感染类型"
+  reason: "黏液便或血便提示细菌感染/痢疾；水样便更支持病毒性胃肠炎"
+
+---
 
 ## 输出格式
-请严格返回 JSON，不要有任何额外文本。格式如下：
+
+请严格返回 JSON，不要有任何额外文本：
+
 ```json
 {
   "sufficient": false,
+  "differential_diagnoses": [
+    {
+      "diagnosis": "疾病名称",
+      "confidence": "high|medium|low",
+      "key_features": ["关键特征1", "关键特征2"],
+      "confirmed_features": ["已确认的特征"],
+      "missing_features": ["尚未确认的关键特征"],
+      "reason": "为什么考虑这个诊断"
+    }
+  ],
   "next_question": {
     "question_id": "标准医学标识符",
-    "question": "口语化、通俗易懂的问题文本（患者能看懂的）",
+    "question": "口语化问题",
     "type": "choice 或 text",
     "options": ["选项1", "选项2"],
-    "hint": "给患者的友好提示",
+    "hint": "提示",
     "allow_skip": true,
-    "reason": "内部reasoning：为什么问这个问题"
+    "reason": "为什么问这个问题"
   },
-  "reasoning": "问诊决策说明",
+  "reasoning": "完整的思考过程（必须包含步骤1-4）",
   "red_flags": [],
   "suggested_tools": []
 }
 ```
 
 ## 绝对禁止
-- ❌ "关于您的症状情况，还有什么需要补充的吗？" —— 这种笼统问题没有任何信息量
-- ❌ "还有什么不舒服吗？" —— 太宽泛，患者不知道回答什么
+- ❌ "关于您的症状情况，还有什么需要补充的吗？" —— 没有任何信息量
+- ❌ "还有什么不舒服吗？" —— 太宽泛
 - ❌ 连续问两个不相关的问题 —— 每次只问一个最关键的问题
-- ❌ 使用"现病史""既往史"等医学术语面向患者提问
+- ❌ 使用"现病史""鉴别诊断"等医学术语面向患者提问
+- ❌ 设计没有意义的选择题选项（如"是/否/不知道"这种不提供信息的选项）
 
 ## 规则
 - sufficient=true 时，next_question 必须为 null
-- type="choice" 时，options 必须至少有 2 个选项，选项也要口语化
+- sufficient=false 时，next_question 必须不为 null
+- type="choice" 时，options 必须至少2个，且每个选项都要有诊断价值
 - type="text" 时，options 应为空数组 []
-- 问题必须口语化、自然，用"您"开头，像医生在诊室里问话
+- 问题必须口语化、自然，用"您"开头
 - 如果患者提到胸痛+大汗、呼吸困难、意识模糊、剧烈腹痛等，red_flags 要标记
-- suggested_tools 可在需要查病史或搜资料时填写："query_patient_history" 或 "search_medical_knowledge"
-- 已问过的问题（见已收集信息中的 key）不要再重复问
+- suggested_tools 可在需要查病史时填写："query_patient_history"
+- 已问过的问题（见 asked_questions 列表）不要再重复问
 - 优先问现病史细节，现病史问清楚后再简短问既往史/用药史
+- 最少问3个问题后才允许 sufficient=true
+- 最多问12个问题，达到上限必须结束
 
 ## 关键规则（必须严格遵守）
 - sufficient=true 时，next_question 必须为 null
-- **sufficient=false 时，next_question 必须不为 null，必须提供一个具体的下一个问题**
-- 如果当前不满足 sufficient=true 的条件（覆盖 <5 个现病史维度 或 问 <5 个问题），你必须设置 sufficient=false 并提供一个 next_question
-- 绝不要在不满足条件时返回 sufficient=true 和 next_question=null
+- sufficient=false 时，next_question 必须不为 null
+- 如果不满足 sufficient 条件，绝不要返回 sufficient=true
+- reasoning 字段必须包含完整的鉴别诊断思考过程（步骤1-4）
 """
 
 
@@ -328,23 +479,42 @@ def _build_interview_prompt(
     """Build the user prompt for LLM interview decision."""
     lines = []
 
-    # 【主诉分析】——这是最关键的部分，引导 LLM 针对性问诊
+    # Chief complaint
     lines.append(f"## 患者主诉\n{state.chief_complaint or '未知'}")
     lines.append("")
 
-    # 根据主诉内容给出问诊策略提示
-    chief = state.chief_complaint or ""
-    if chief:
-        lines.append("## 问诊策略提示")
-        lines.append("请先分析主诉中的关键症状，然后设计最有针对性的问题。")
-        lines.append("不要笼统地问‘还有什么补充的’，要像真实医生一样追问具体细节。")
+    # Current differential diagnoses (if any)
+    diffs = state.get_differential_diagnoses()
+    if diffs:
+        lines.append("## 当前鉴别诊断（由你之前提出）")
+        for d in diffs:
+            flag = "✓" if d.confidence == "high" else "?" if d.confidence == "medium" else "×"
+            lines.append(f"  {flag} {d.diagnosis} ({d.confidence})")
+            if d.confirmed_features:
+                lines.append(f"    已确认: {', '.join(d.confirmed_features)}")
+            if d.refuting_evidence:
+                lines.append(f"    已排除: {', '.join(d.refuting_evidence)}")
+            if d.key_features:
+                lines.append(f"    关键特征: {', '.join(d.key_features)}")
+        lines.append("")
+    else:
+        lines.append("## 鉴别诊断状态")
+        lines.append("这是问诊开始，还没有鉴别诊断列表。请在本次回答中建立鉴别诊断列表。")
         lines.append("")
 
-    # Show collected info in a structured way
+    # Confirmed features
+    features = state.get_confirmed_features()
+    if features:
+        lines.append("## 已确认的关键特征")
+        for k, v in features.items():
+            lines.append(f"  • {k}: {v}")
+        lines.append("")
+
+    # Collected info (standard phases)
     if state.collected_info:
         lines.append("## 已收集的问诊信息")
         for phase_id in PHASE_ORDER:
-            if phase_id.value in state.collected_info:
+            if phase_id.value in state.collected_info and not phase_id.value.startswith("__"):
                 meta = PHASE_META.get(phase_id, {})
                 cat = meta.get("cat", phase_id.value)
                 val = state.collected_info[phase_id.value]
@@ -354,7 +524,7 @@ def _build_interview_prompt(
                     lines.append(f"    患者原话: {raw}")
         lines.append("")
 
-    # Show tool results if any
+    # Tool results
     if tool_results:
         lines.append("## 工具查询结果")
         for tr in tool_results:
@@ -366,24 +536,25 @@ def _build_interview_prompt(
                 lines.append(f"  结果: {str(result)[:500]}")
         lines.append("")
 
-    # Show patient history context if available
+    # Patient history
     if patient_history:
         lines.append(f"## 患者既往病史\n{patient_history}\n")
 
+    # Question count
     lines.append(f"已问 {len(state.asked_questions)} 个问题，最少 {state.min_questions} 个，最多 {state.max_questions} 个。")
     if state.asked_questions:
         lines.append(f"已问问题 ID: {', '.join(state.asked_questions)}")
     lines.append("")
 
-    # Determine which phases are still pending
-    pending = [p.value for p in PHASE_ORDER if p.value not in state.collected_info]
+    # Pending phases (for reference only)
+    pending = [p.value for p in PHASE_ORDER if p.value not in state.collected_info and not p.value.startswith("__")]
     if pending:
-        lines.append(f"尚未覆盖的维度: {', '.join(pending[:5])}")
+        lines.append(f"尚未覆盖的信息维度（参考）: {', '.join(pending[:5])}")
     else:
-        lines.append("已覆盖全部问诊维度。")
+        lines.append("已覆盖全部标准问诊维度。")
     lines.append("")
 
-    # Red flags guidance
+    # Red flags
     if state.red_flags_detected:
         lines.append(f"⚠️ 已检测到的危险信号: {', '.join(state.red_flags_detected)}")
         lines.append("如果新信息中有更多危险信号，请在 red_flags 中标注。")
@@ -391,22 +562,20 @@ def _build_interview_prompt(
         lines.append("目前未检测到明显危险信号。")
     lines.append("")
 
-    # Decision prompt
+    # Decision guidance
     if len(state.asked_questions) < state.min_questions:
         lines.append("尚未达到最少问诊数量，请继续提问。")
-        lines.append("提示：根据主诉中的关键症状，问出能帮助鉴别诊断的具体问题。")
+        lines.append("请根据主诉建立鉴别诊断列表，然后设计最有针对性的问题。")
     elif len(state.asked_questions) >= state.max_questions:
         lines.append("已达到最大问诊数量上限，请判定信息是否足够进行初步诊断。")
     else:
-        # Critical: enforce minimum clinical coverage before allowing sufficient=true
-        hpi_phases = [p.value for p in PHASE_ORDER[:8]]  # HPI phases
+        hpi_phases = [p.value for p in PHASE_ORDER[:8]]
         hpi_covered = sum(1 for p in hpi_phases if p in state.collected_info)
-        lines.append(f"已覆盖的现病史维度: {hpi_covered}/8 (起病、性质、部位、程度、时间、诱因、伴随症状、诊疗经过)")
-        if hpi_covered < 5:
-            lines.append("现病史信息还不足，请继续追问具体细节。不要判定为 sufficient。")
-            lines.append("目标：至少覆盖5个现病史维度后，才能考虑结束问诊。")
+        lines.append(f"已覆盖的现病史维度: {hpi_covered}/8")
+        if hpi_covered < 3:
+            lines.append("现病史信息还不足，请继续追问具体细节。")
         else:
-            lines.append("现病史维度已较充分。如果还有未覆盖的关键维度，可以继续追问；否则可以判定 sufficient。")
+            lines.append("现病史维度已较充分。如果鉴别诊断的关键特征已大部分确认，可以判定 sufficient。")
         lines.append("")
         lines.append("规则：sufficient=true 仅在以下情况允许：")
         lines.append("  - 已覆盖 ≥3 个现病史维度，且已问 ≥3 个问题；或")
@@ -434,15 +603,16 @@ def _extract_json(text: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Dynamic Interview Engine
+# Dynamic Interview Engine — Differential-Diagnosis-Driven
 # ---------------------------------------------------------------------------
 
 class DynamicInterviewEngine:
-    """Uses LLM to decide what to ask next based on patient context.
+    """Uses LLM to drive interview based on differential diagnosis reasoning.
 
-    The engine follows a clinical framework but presents questions colloquially.
-    It can also suggest tool calls during the interview (e.g. look up patient
-    history, search for differential diagnoses).
+    Unlike the old linear phase-based engine, this engine:
+    1. Maintains a list of differential hypotheses
+    2. Asks targeted questions to confirm/rule out each hypothesis
+    3. Has no fixed question sequence — the LLM decides what to ask next
     """
 
     def __init__(self, llm_service: Any) -> None:
@@ -454,12 +624,11 @@ class DynamicInterviewEngine:
         patient_history: str | None = None,
         tool_results: list[dict[str, Any]] | None = None,
     ) -> tuple[QuestionTemplate | None, InterviewState, list[str]]:
-        """Ask LLM to decide the next question or if we have enough info.
+        """Ask LLM to decide the next question using differential diagnosis reasoning.
 
         Returns:
-            (next_question, updated_state, suggested_tools) —
-            next_question is None if sufficient or red flags detected.
-            suggested_tools is a list of tool names to call before next question.
+            (next_question, updated_state, suggested_tools)
+            next_question is None if interview is complete or red flags detected.
         """
         prompt = _build_interview_prompt(state, patient_history, tool_results)
 
@@ -468,47 +637,57 @@ class DynamicInterviewEngine:
                 messages=[{"role": "user", "content": prompt}],
                 system_prompt=INTERVIEW_SYSTEM_PROMPT,
                 temperature=0.3,
-                max_tokens=1200,
+                max_tokens=2000,  # Increased for longer reasoning + differential diagnoses
             )
 
             raw = _extract_json(response.content)
             decision = InterviewDecision.model_validate(raw)
 
-            # Handle red flags immediately
+            # Handle red flags
             if decision.red_flags:
                 state.red_flags_detected.extend(decision.red_flags)
                 state.is_sufficient = True
                 state.current_question_id = None
                 return None, state, []
 
-            # Check if sufficient — enforce minimum clinical coverage
+            # Update differential diagnoses in state
+            if decision.differential_diagnoses:
+                diffs = [
+                    DifferentialHypothesis(
+                        diagnosis=d.diagnosis,
+                        confidence=d.confidence,
+                        key_features=d.key_features,
+                        supporting_evidence=d.confirmed_features,
+                        refuting_evidence=[],
+                        reason=d.reason,
+                    )
+                    for d in decision.differential_diagnoses
+                ]
+                state.set_differential_diagnoses(diffs)
+
+            # Check sufficiency — enforce minimum coverage
             if decision.sufficient or len(state.asked_questions) >= state.max_questions:
                 hpi_phases = [p.value for p in PHASE_ORDER[:8]]
                 hpi_covered = sum(1 for p in hpi_phases if p in state.collected_info)
-                # Require at least 3 HPI dimensions AND at least 3 questions (TEMP: lowered for SearXNG validation)
                 if hpi_covered >= 3 and len(state.asked_questions) >= 3:
                     state.is_sufficient = True
                     state.current_question_id = None
                     return None, state, []
                 elif len(state.asked_questions) >= state.max_questions:
-                    # Hard limit reached
                     state.is_sufficient = True
                     state.current_question_id = None
                     return None, state, []
                 else:
-                    # Override LLM's premature sufficient judgment
                     decision.sufficient = False
 
             if decision.next_question is None:
-                # LLM says not sufficient but gave no question — fallback
-                # CRITICAL: Only end interview if max_questions reached or hpi_covered >= 5
+                # LLM didn't provide a question but we can't end yet
                 hpi_phases = [p.value for p in PHASE_ORDER[:8]]
                 hpi_covered = sum(1 for p in hpi_phases if p in state.collected_info)
                 if len(state.asked_questions) >= state.max_questions or (hpi_covered >= 3 and len(state.asked_questions) >= 3):
                     state.is_sufficient = True
                     state.current_question_id = None
                     return None, state, []
-                # Generate a targeted fallback question
                 return self._fallback_question(state), state, []
 
             q = decision.next_question
@@ -516,12 +695,23 @@ class DynamicInterviewEngine:
             if q.question_id in state.asked_questions:
                 q.question_id = f"{q.question_id}_{len(state.asked_questions)}"
 
-            # Update phase tracking
-            phase = InterviewPhase(q.question_id) if q.question_id in [p.value for p in PHASE_ORDER] else None
-            if phase:
-                # Advance phase index to at least this phase
-                idx = PHASE_ORDER.index(phase) if phase in PHASE_ORDER else state.current_phase_index
-                state.current_phase_index = max(state.current_phase_index, idx)
+            # Determine phase tag
+            phase = None
+            for p in PHASE_ORDER:
+                if p.value == q.question_id or q.question_id.startswith(p.value + "_"):
+                    phase = p
+                    break
+            if phase is None:
+                if q.question_id.startswith("hpi_"):
+                    phase = InterviewPhase.HPI_QUALITY
+                elif q.question_id.startswith("pmh_"):
+                    phase = InterviewPhase.PMH_CHRONIC
+                elif q.question_id.startswith("ps_"):
+                    phase = InterviewPhase.PS_LIFESTYLE
+                elif q.question_id.startswith("fh_"):
+                    phase = InterviewPhase.FH_GENETIC
+                elif q.question_id.startswith("med_"):
+                    phase = InterviewPhase.MED_CURRENT
 
             meta = PHASE_META.get(phase, {}) if phase else {}
 
@@ -533,7 +723,7 @@ class DynamicInterviewEngine:
                 hint=q.hint,
                 allow_skip=q.allow_skip,
                 phase=q.question_id,
-                colloquial_phase=meta.get("colloquial", ""),
+                colloquial_phase=meta.get("colloquial", "问诊"),
             )
 
             state.current_question_id = question.question_id
@@ -541,8 +731,6 @@ class DynamicInterviewEngine:
 
         except Exception as exc:
             # LLM failed — fallback
-            # CRITICAL: Don't end interview just because LLM failed
-            # Only end if max_questions reached or sufficient HPI coverage
             hpi_phases = [p.value for p in PHASE_ORDER[:8]]
             hpi_covered = sum(1 for p in hpi_phases if p in state.collected_info)
             if len(state.asked_questions) >= state.max_questions or (hpi_covered >= 5 and len(state.asked_questions) >= 5):
@@ -552,97 +740,154 @@ class DynamicInterviewEngine:
 
             return self._fallback_question(state), state, []
 
-    def _generate_phase_question(self, phase: InterviewPhase, chief_complaint: str) -> str:
-        """Generate a specific question for a given phase based on chief complaint keywords."""
-        chief_lower = chief_complaint.lower()
-        # Fever-related
-        if any(k in chief_lower for k in ("发烧", "发热", "热", "高烧", "低烧")):
-            if phase == InterviewPhase.HPI_LOCATION:
-                return "头疼主要在哪个位置？前额、后脑勺、两侧还是整个头？"
-            elif phase == InterviewPhase.HPI_TIMING:
-                return "发烧和头疼是持续存在还是一阵一阵的？晚上会不会加重？"
-            elif phase == InterviewPhase.HPI_AGGRAVATE:
-                return "什么情况下头疼会加重？比如低头、咳嗽或者见光的时候？"
-            elif phase == InterviewPhase.HPI_ASSOCIATED:
-                return "除了头疼发烧，还有没有咳嗽、嗓子疼、流鼻涕或者浑身酸疼？"
-            elif phase == InterviewPhase.HPI_TREATMENT:
-                return "之前有没有吃过退烧药或者看过医生？效果怎么样？"
-            elif phase == InterviewPhase.PMH_CHRONIC:
-                return "您平时身体怎么样？有没有高血压、糖尿病或者其他慢性病？"
-            elif phase == InterviewPhase.MED_CURRENT:
-                return "最近有没有在吃什么药？包括平时长期吃的药。"
-        # Headache-specific (without fever)
-        elif any(k in chief_lower for k in ("头疼", "头痛", "头晕")):
-            if phase == InterviewPhase.HPI_LOCATION:
-                return "头疼主要在哪个位置？前额、后脑勺、两侧还是整个头？"
-            elif phase == InterviewPhase.HPI_TIMING:
-                return "头疼是持续的还是一阵一阵的？什么时候比较明显？"
-            elif phase == InterviewPhase.HPI_AGGRAVATE:
-                return "什么情况下头疼会加重？休息后能缓解吗？"
-            elif phase == InterviewPhase.HPI_ASSOCIATED:
-                return "除了头疼，有没有恶心、呕吐、怕光或者视力模糊的情况？"
-            elif phase == InterviewPhase.HPI_TREATMENT:
-                return "有没有吃过止疼药？效果怎么样？"
-        # Abdominal pain / diarrhea
-        elif any(k in chief_lower for k in ("肚子疼", "腹痛", "肚疼", "拉肚子", "腹泻", "拉稀")):
-            if phase == InterviewPhase.HPI_LOCATION:
-                return "肚子疼主要是哪个位置？上腹部、肚脐周围还是下腹？"
-            elif phase == InterviewPhase.HPI_SEVERITY:
-                return "肚子疼得厉害吗？影响正常活动吗？"
-            elif phase == InterviewPhase.HPI_AGGRAVATE:
-                return "吃东西后肚子疼会加重还是减轻？"
-            elif phase == InterviewPhase.HPI_ASSOCIATED:
-                return "有没有发烧、恶心、呕吐的情况？"
-            elif phase == InterviewPhase.HPI_TREATMENT:
-                return "有没有吃过止泻药或者消炎药？"
-        # Cough / respiratory
-        elif any(k in chief_lower for k in ("咳嗽", "咳", "胸闷", "气短", "呼吸", "咳痰")):
-            if phase == InterviewPhase.HPI_SEVERITY:
-                return "咳嗽厉害吗？影响睡觉吗？"
-            elif phase == InterviewPhase.HPI_TIMING:
-                return "咳嗽是白天多还是晚上多？躺下的时候会不会加重？"
-            elif phase == InterviewPhase.HPI_ASSOCIATED:
-                return "有没有发烧、胸痛、气喘的情况？"
-            elif phase == InterviewPhase.HPI_TREATMENT:
-                return "有没有吃过止咳药或者感冒药？"
-        # Chest pain / cardiac
-        elif any(k in chief_lower for k in ("胸痛", "胸闷", "心绞痛", "心慌", "心疼")):
-            if phase == InterviewPhase.HPI_LOCATION:
-                return "胸痛具体在哪个位置？是中间还是偏左？"
-            elif phase == InterviewPhase.HPI_SEVERITY:
-                return "胸痛发作时影响活动吗？需要停下来休息吗？"
-            elif phase == InterviewPhase.HPI_AGGRAVATE:
-                return "胸痛是在活动时出现还是休息时也会疼？"
-            elif phase == InterviewPhase.HPI_ASSOCIATED:
-                return "有没有出冷汗、呼吸困难或者左肩背放射痛？"
-        # Default fallback for any phase
-        _default_questions = {
-            InterviewPhase.HPI_ONSET: "这个不舒服是什么时候开始的？突然出现还是慢慢加重的？",
-            InterviewPhase.HPI_QUALITY: "具体是什么样的感觉？比如胀痛、刺痛还是烧灼感？",
-            InterviewPhase.HPI_LOCATION: "不舒服主要在哪个部位？",
-            InterviewPhase.HPI_SEVERITY: "现在这种不舒服影响您正常活动吗？比如上班、吃饭、睡觉？",
-            InterviewPhase.HPI_TIMING: "是一直持续还是时好时坏？白天重还是晚上重？",
-            InterviewPhase.HPI_AGGRAVATE: "什么情况下会加重或者缓解？",
-            InterviewPhase.HPI_ASSOCIATED: "还有其他不舒服吗？",
-            InterviewPhase.HPI_TREATMENT: "之前有没有看过医生或者吃过药？效果怎么样？",
-            InterviewPhase.PMH_CHRONIC: "您平时身体怎么样？有没有高血压、糖尿病或者其他慢性病？",
-            InterviewPhase.PMH_ALLERGY: "有没有对药物或者食物过敏的情况？",
-            InterviewPhase.PS_LIFESTYLE: "您抽烟吗？喝酒吗？平时作息规律吗？",
-            InterviewPhase.FH_GENETIC: "家里有没有人有遗传病或者类似的疾病？",
-            InterviewPhase.MED_CURRENT: "最近有没有在吃什么药？",
-        }
-        return _default_questions.get(phase, f"关于您的{PHASE_META.get(phase, {}).get('colloquial', '情况')}，您还有什么需要补充的吗？")
+    async def process_answer(
+        self,
+        state: InterviewState,
+        question_id: str,
+        answer: str,
+    ) -> InterviewState:
+        """Process a patient's answer and extract structured info + update differential diagnoses.
+
+        Uses LLM to:
+        1. Extract structured medical information from natural language
+        2. Update the differential diagnosis list based on new information
+        """
+        state.raw_answers[question_id] = answer
+        state.asked_questions.append(question_id)
+
+        if answer.lower() in ("跳过", "skipped", "不清楚", "不记得"):
+            state.collected_info[question_id] = answer
+            return state
+
+        # Use LLM to extract structured info AND update differential diagnoses
+        diffs = state.get_differential_diagnoses()
+        diffs_json = json.dumps([d.to_dict() for d in diffs], ensure_ascii=False) if diffs else "[]"
+
+        extract_prompt = f"""患者对问题"{question_id}"的回答是："{answer}"
+
+当前鉴别诊断列表：{diffs_json}
+
+请完成以下任务，返回 JSON：
+
+1. 从患者回答中提取结构化的医学信息
+2. 根据新信息，更新每个鉴别诊断的 confirmed_features 和 missing_features
+3. 如果有新的鉴别诊断需要加入，或某个诊断可以被排除，请说明
+
+返回格式：
+{{
+  "extracted": "提取的关键医学信息（简洁准确）",
+  "category": "所属的临床维度",
+  "differential_updates": [
+    {{
+      "diagnosis": "疾病名称",
+      "action": "confirm|refute|add|remove",
+      "feature": "被确认或排除的特征",
+      "reason": "为什么"
+    }}
+  ],
+  "new_differential_diagnoses": [
+    {{
+      "diagnosis": "新诊断名称",
+      "confidence": "high|medium|low",
+      "key_features": ["特征1", "特征2"],
+      "reason": "为什么新考虑这个诊断"
+    }}
+  ]
+}}
+
+如果患者回答"没有""无"等，extracted 填"无"，differential_updates 为空。
+如果信息不明确，extracted 填患者原话。"""
+
+        try:
+            response = await self.llm.chat(
+                messages=[{"role": "user", "content": extract_prompt}],
+                system_prompt="你是医学信息提取和鉴别诊断更新助手。从患者回答中提取信息并更新鉴别诊断列表。只返回JSON。",
+                temperature=0.1,
+                max_tokens=1024,
+            )
+            raw = _extract_json(response.content)
+            extracted = raw.get("extracted", answer)
+            state.collected_info[question_id] = extracted
+
+            # Update confirmed features
+            features = state.get_confirmed_features()
+            features[question_id] = extracted
+            state.set_confirmed_features(features)
+
+            # Update differential diagnoses based on differential_updates
+            diff_updates = raw.get("differential_updates", [])
+            new_diagnoses = raw.get("new_differential_diagnoses", [])
+
+            existing_diagnoses = {d.diagnosis: d for d in diffs}
+
+            for update in diff_updates:
+                diag_name = update.get("diagnosis", "")
+                action = update.get("action", "")
+                feature = update.get("feature", "")
+
+                if diag_name not in existing_diagnoses:
+                    continue
+
+                d = existing_diagnoses[diag_name]
+                if action == "confirm" and feature:
+                    if feature not in d.supporting_evidence:
+                        d.supporting_evidence.append(feature)
+                elif action == "refute" and feature:
+                    if feature not in d.refuting_evidence:
+                        d.refuting_evidence.append(feature)
+
+            # Add new diagnoses
+            for new in new_diagnoses:
+                diag_name = new.get("diagnosis", "")
+                if diag_name and diag_name not in existing_diagnoses:
+                    diffs.append(DifferentialHypothesis(
+                        diagnosis=diag_name,
+                        confidence=new.get("confidence", "low"),
+                        key_features=new.get("key_features", []),
+                        supporting_evidence=[],
+                        refuting_evidence=[],
+                        reason=new.get("reason", ""),
+                    ))
+
+            state.set_differential_diagnoses(diffs)
+
+        except Exception:
+            # Fallback: store raw answer
+            state.collected_info[question_id] = answer
+            features = state.get_confirmed_features()
+            features[question_id] = answer
+            state.set_confirmed_features(features)
+
+        return state
 
     def _fallback_question(self, state: InterviewState) -> QuestionTemplate:
-        """Generate a targeted fallback question based on chief complaint when LLM fails."""
+        """Generate a targeted fallback question based on chief complaint keywords and differential diagnoses."""
         chief = state.chief_complaint or ""
-
-        # Try to infer the most relevant question from chief complaint keywords
         chief_lower = chief.lower()
 
-        # Fever-related
+        # Get current differential diagnoses to guide fallback
+        diffs = state.get_differential_diagnoses()
+
+        # If we have diffs, try to ask about missing features of top hypothesis
+        if diffs and diffs[0].key_features:
+            top = diffs[0]
+            asked_set = set(state.asked_questions)
+            for feature in top.key_features:
+                feature_key = feature.lower().replace(" ", "").replace("？", "")
+                if not any(feature_key in q.lower() for q in asked_set):
+                    return QuestionTemplate(
+                        question_id=f"hpi_associated_{len(state.asked_questions)}",
+                        question=f"您有没有{feature}的情况？",
+                        type="choice",
+                        options=["有", "没有", "不太确定"],
+                        hint="这有助于判断具体情况",
+                        allow_skip=True,
+                        phase="hpi_associated",
+                        colloquial_phase="症状情况",
+                    )
+
+        # Keyword-based fallback (simplified but targeted)
         if any(k in chief_lower for k in ("发烧", "发热", "热", "高烧", "低烧", "退烧")):
-            # Check if we already have temperature info (by question_id or collected key)
             temp_already_asked = any(
                 q in state.asked_questions or q in state.collected_info
                 for q in ("hpi_severity", "体温", "温度")
@@ -657,25 +902,18 @@ class DynamicInterviewEngine:
                     phase="hpi_severity",
                     colloquial_phase="症状情况",
                 )
-            # If temp asked, check headache character for fever+headache combo
             if any(k in chief_lower for k in ("头疼", "头痛", "头晕")):
-                headache_already_asked = any(
-                    q in state.asked_questions or q in state.collected_info
-                    for q in ("hpi_character", "头痛性质", "疼痛性质")
+                return QuestionTemplate(
+                    question_id="hpi_quality",
+                    question="头疼是怎么个疼法？胀痛、刺痛、还是一跳一跳地疼？",
+                    type="choice",
+                    options=["胀痛或压痛", "刺痛或针扎痛", "一跳一跳的搏动痛", "绞痛或紧箍痛", "说不清楚"],
+                    hint="这有助于判断原因",
+                    allow_skip=True,
+                    phase="hpi_quality",
+                    colloquial_phase="症状情况",
                 )
-                if not headache_already_asked:
-                    return QuestionTemplate(
-                        question_id="hpi_character",
-                        question="头疼是怎么个疼法？胀痛、刺痛、还是一跳一跳地疼？",
-                        type="choice",
-                        options=["胀痛或压痛", "刺痛或针扎痛", "一跳一跳的搏动痛", "绞痛或紧箍痛", "说不清楚"],
-                        hint="这有助于判断原因",
-                        allow_skip=True,
-                        phase="hpi_character",
-                        colloquial_phase="症状情况",
-                    )
 
-        # Headache-specific (without fever)
         elif any(k in chief_lower for k in ("头疼", "头痛", "头晕")):
             location_already_asked = any(
                 q in state.asked_questions or q in state.collected_info
@@ -685,49 +923,78 @@ class DynamicInterviewEngine:
                 return QuestionTemplate(
                     question_id="hpi_location",
                     question="头疼主要在哪个位置？前额、后脑勺、两侧还是整个头？",
-                    type="text",
+                    type="choice",
+                    options=["前额", "后脑勺", "两侧太阳穴", "整个头", "说不清楚"],
                     hint="请描述具体位置",
                     allow_skip=True,
                     phase="hpi_location",
                     colloquial_phase="症状情况",
                 )
+            return QuestionTemplate(
+                question_id="hpi_quality",
+                question="头疼是怎么个疼法？胀痛、刺痛、还是一跳一跳地疼？",
+                type="choice",
+                options=["胀痛或压痛", "刺痛或针扎痛", "一跳一跳的搏动痛", "绞痛或紧箍痛", "说不清楚"],
+                hint="这有助于判断原因",
+                allow_skip=True,
+                phase="hpi_quality",
+                colloquial_phase="症状情况",
+            )
 
-        # Abdominal pain / diarrhea
-        elif any(k in chief_lower for k in ("肚子疼", "腹痛", "肚疼", "拉肠子", "腹泻", "拉稀", "腹泻")):
+        elif any(k in chief_lower for k in ("肚子疼", "腹痛", "肚疼", "拉肚子", "腹泻", "拉稀")):
             stool_already_asked = any(
                 q in state.asked_questions or q in state.collected_info
                 for q in ("hpi_character", "大便性状", "大便")
             )
             if not stool_already_asked:
                 return QuestionTemplate(
-                    question_id="hpi_character",
-                    question="大便是什么样的？稀水样、有黏液、还是像豆腚渣？",
-                    type="text",
+                    question_id="hpi_quality",
+                    question="大便是什么样的？稀水样、有黏液、还是带血？",
+                    type="choice",
+                    options=["稀水样", "像鼻涕一样有黏液", "带血或像果酱", "次数多但每次量少", "说不清楚"],
                     hint="这能帮助判断是哪种感染",
                     allow_skip=True,
-                    phase="hpi_character",
+                    phase="hpi_quality",
                     colloquial_phase="症状情况",
                 )
+            return QuestionTemplate(
+                question_id="hpi_location",
+                question="肚子疼主要是哪个位置？上腹部、肚脐周围还是下腹？",
+                type="choice",
+                options=["上腹部（心窝下）", "肚脐周围", "右下腹", "左下腹", "说不清楚"],
+                hint="请指出最疼的位置",
+                allow_skip=True,
+                phase="hpi_location",
+                colloquial_phase="症状情况",
+            )
 
-        # Cough / respiratory
         elif any(k in chief_lower for k in ("咳嗽", "咳", "胸闷", "气短", "呼吸", "咳痰")):
             sputum_already_asked = any(
                 q in state.asked_questions or q in state.collected_info
-                for q in ("hpi_character", "嗟嚏性质", "嗟嗽", "痰")
+                for q in ("hpi_character", "痰性质", "咳嗽", "痰")
             )
             if not sputum_already_asked:
                 return QuestionTemplate(
-                    question_id="hpi_character",
+                    question_id="hpi_quality",
                     question="咳嗽有痰吗？是白色的痰还是黄色的？",
                     type="choice",
                     options=["没有痰，干咳", "白色痰", "黄色或绿色痰", "带血丝的痰", "说不清楚"],
                     hint="痰的颜色能提供很多信息",
                     allow_skip=True,
-                    phase="hpi_character",
+                    phase="hpi_quality",
                     colloquial_phase="症状情况",
                 )
+            return QuestionTemplate(
+                question_id="hpi_timing",
+                question="咳嗽是白天多还是晚上多？躺下的时候会不会加重？",
+                type="choice",
+                options=["白天多", "晚上多", "躺下时加重", "活动时加重", "差不多"],
+                hint="时间规律有助于判断病因",
+                allow_skip=True,
+                phase="hpi_timing",
+                colloquial_phase="症状情况",
+            )
 
-        # Chest pain / cardiac
         elif any(k in chief_lower for k in ("胸痛", "胸闷", "心绞痛", "心慌", "心疼")):
             chest_pain_already_asked = any(
                 q in state.asked_questions or q in state.collected_info
@@ -735,46 +1002,44 @@ class DynamicInterviewEngine:
             )
             if not chest_pain_already_asked:
                 return QuestionTemplate(
-                    question_id="hpi_character",
+                    question_id="hpi_quality",
                     question="胸痛是怎么疼的？压迫感、针刺感、还是烧灼感？",
                     type="choice",
                     options=["压着疼或窄着疼", "针扎样刺痛", "烧灼感", "一阵一阵的绞痛", "说不清楚"],
                     hint="性质很重要",
                     allow_skip=True,
-                    phase="hpi_character",
+                    phase="hpi_quality",
                     colloquial_phase="症状情况",
                 )
+            return QuestionTemplate(
+                question_id="hpi_aggravate",
+                question="胸痛是在活动时出现还是休息时也会疼？",
+                type="choice",
+                options=["活动时出现", "休息时也会疼", "两者都有", "说不清楚"],
+                hint="这能区分心源性还是其他原因",
+                allow_skip=True,
+                phase="hpi_aggravate",
+                colloquial_phase="症状情况",
+            )
 
-        # Default: ask about onset if nothing else fits
-        if "起病时间" not in state.asked_questions and "hpi_onset" not in state.asked_questions:
+        # Default: ask about onset
+        if "hpi_onset" not in state.asked_questions and "起病时间" not in state.asked_questions:
             return QuestionTemplate(
                 question_id="hpi_onset",
                 question="这个不舒服是什么时候开始的？突然出现还是慢慢加重的？",
-                type="text",
+                type="choice",
+                options=["今天刚出现", "最近2-3天", "已经一周以上", "说不清楚"],
                 hint="请告诉我大约什么时候开始的",
                 allow_skip=True,
                 phase="hpi_onset",
                 colloquial_phase="症状情况",
             )
 
-        # If we've asked about onset but nothing else, ask severity
-        if "严重程度" not in state.asked_questions and "hpi_severity" not in state.asked_questions:
-            return QuestionTemplate(
-                question_id="hpi_severity",
-                question="现在这种不舒服影响您正常活动吗？比如上班、吃饭、睡觉？",
-                type="text",
-                hint="请描述对您日常生活的影响",
-                allow_skip=True,
-                phase="hpi_severity",
-                colloquial_phase="症状情况",
-            )
-
-        # Find first unasked standard phase (check both asked_questions AND collected_info)
+        # Find first unasked standard phase
         for phase in PHASE_ORDER[state.current_phase_index:]:
             if phase.value not in state.asked_questions and phase.value not in state.collected_info:
                 meta = PHASE_META.get(phase, {})
-                # Generate specific question based on phase and chief complaint
-                q_text = self._generate_phase_question(phase, state.chief_complaint)
+                q_text = self._generate_default_phase_question(phase)
                 return QuestionTemplate(
                     question_id=phase.value,
                     question=q_text,
@@ -796,47 +1061,21 @@ class DynamicInterviewEngine:
             colloquial_phase="补充",
         )
 
-    async def process_answer(
-        self,
-        state: InterviewState,
-        question_id: str,
-        answer: str,
-    ) -> InterviewState:
-        """Process a patient's answer and extract structured info.
-
-        Uses LLM to extract structured medical information from natural language.
-        """
-        state.raw_answers[question_id] = answer
-        state.asked_questions.append(question_id)
-
-        if answer.lower() in ("跳过", "skipped", "不清楚", "不记得"):
-            state.collected_info[question_id] = answer
-            return state
-
-        # Use LLM to extract structured info
-        extract_prompt = f"""患者对问题"{question_id}"的回答是："{answer}"
-
-请从中提取结构化的医学信息。返回 JSON：
-{{
-  "extracted": "提取的关键医学信息（简洁准确）",
-  "category": "所属的临床维度"
-}}
-
-如果患者回答"没有""无"等，extracted 填"无"。
-如果信息不明确，extracted 填患者原话。"""
-
-        try:
-            response = await self.llm.chat(
-                messages=[{"role": "user", "content": extract_prompt}],
-                system_prompt="你是医学信息提取助手。从患者自然语言回答中提取结构化医学信息。只返回JSON。",
-                temperature=0.1,
-                max_tokens=256,
-            )
-            raw = _extract_json(response.content)
-            extracted = raw.get("extracted", answer)
-            state.collected_info[question_id] = extracted
-        except Exception:
-            # Fallback: store raw answer
-            state.collected_info[question_id] = answer
-
-        return state
+    def _generate_default_phase_question(self, phase: InterviewPhase) -> str:
+        """Generate a default question for a phase when no keyword match."""
+        defaults = {
+            InterviewPhase.HPI_ONSET: "这个不舒服是什么时候开始的？突然出现还是慢慢加重的？",
+            InterviewPhase.HPI_QUALITY: "具体是什么样的感觉？比如胀痛、刺痛还是烧灼感？",
+            InterviewPhase.HPI_LOCATION: "不舒服主要在哪个部位？",
+            InterviewPhase.HPI_SEVERITY: "现在这种不舒服影响您正常活动吗？",
+            InterviewPhase.HPI_TIMING: "是一直持续还是时好时坏？",
+            InterviewPhase.HPI_AGGRAVATE: "什么情况下会加重或者缓解？",
+            InterviewPhase.HPI_ASSOCIATED: "还有其他不舒服吗？",
+            InterviewPhase.HPI_TREATMENT: "之前有没有看过医生或者吃过药？",
+            InterviewPhase.PMH_CHRONIC: "您平时身体怎么样？有没有高血压、糖尿病或者其他慢性病？",
+            InterviewPhase.PMH_ALLERGY: "有没有对药物或者食物过敏的情况？",
+            InterviewPhase.PS_LIFESTYLE: "您抽烟吗？喝酒吗？平时作息规律吗？",
+            InterviewPhase.FH_GENETIC: "家里有没有人有遗传病或者类似的疾病？",
+            InterviewPhase.MED_CURRENT: "最近有没有在吃什么药？",
+        }
+        return defaults.get(phase, f"关于您的{PHASE_META.get(phase, {}).get('colloquial', '情况')}，您还有什么需要补充的吗？")
