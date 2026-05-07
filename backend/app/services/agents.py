@@ -671,12 +671,21 @@ OUTPUT (search query only):"""
         # STEP 1: ALWAYS search medical knowledge before diagnosis
         # This ensures evidence-based diagnosis, not just LLM parametric knowledge
         logger.info(f"[SEARXNG_DEBUG] Starting search_medical_knowledge with query: {search_query[:100]}...")
-        
-        search_result = await GLOBAL_REGISTRY.execute(
-            "search_medical_knowledge",
-            {"query": search_query, "top_k": 5},
-        )
-        logger.info(f"[SEARXNG_DEBUG] Search result type: {type(search_result)}, has answer: {bool(search_result) if search_result else False}")
+
+        # Guard with independent timeout — SearXNG internal engine delays must NOT block diagnosis
+        search_result: dict[str, Any] | None = None
+        try:
+            search_result = await asyncio.wait_for(
+                GLOBAL_REGISTRY.execute(
+                    "search_medical_knowledge",
+                    {"query": search_query, "top_k": 5},
+                ),
+                timeout=8.0,
+            )
+            logger.info(f"[SEARXNG_DEBUG] Search result type: {type(search_result)}, has answer: {bool(search_result) if search_result else False}")
+        except asyncio.TimeoutError:
+            logger.warning("[SEARXNG_DEBUG] Medical knowledge search timed out after 8s, proceeding without external sources")
+            search_result = None
         
         knowledge_context = ""
         if isinstance(search_result, dict):
