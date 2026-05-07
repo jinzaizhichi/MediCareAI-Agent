@@ -15,6 +15,7 @@ Design principles (from architecture docs):
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
@@ -23,6 +24,8 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.config import DynamicConfigService
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -231,9 +234,12 @@ class ExternalSearchAgent:
                 resp = await client.get(url, params=params)
                 resp.raise_for_status()
                 data = resp.json()
-                return data.get("results", [])
-        except Exception:
+                results = data.get("results", [])
+                logger.info(f"[SEARXNG_DEBUG] SearXNG returned {len(results)} results for query: {query[:60]}")
+                return results
+        except Exception as exc:
             # Fail gracefully — external search is supplementary, not critical
+            logger.warning(f"[SEARXNG_DEBUG] SearXNG search failed: {type(exc).__name__}: {str(exc)[:200]}")
             return []
 
     # ------------------------------------------------------------------
@@ -250,6 +256,9 @@ class ExternalSearchAgent:
         - +30 for high-trust search engine (pubmed, wikipedia, etc.)
         - +10 for content length > 200 chars
         - +5 for content length > 50 chars
+
+        Returns ALL results sorted by score (not just trusted ones),
+        so that even low-trust results are available as fallback.
         """
         scored: list[SearchResult] = []
         for r in results:
@@ -274,6 +283,10 @@ class ExternalSearchAgent:
             elif content_len > 50:
                 score += 5
 
+            # 4. Base score for having any content
+            if content_len > 0:
+                score += 1
+
             scored.append(
                 SearchResult(
                     title=r.get("title", ""),
@@ -285,4 +298,6 @@ class ExternalSearchAgent:
                 )
             )
 
+        # Sort by trust score descending, but return ALL results
+        # Caller can decide how many to use
         return sorted(scored, key=lambda x: x.trust_score, reverse=True)

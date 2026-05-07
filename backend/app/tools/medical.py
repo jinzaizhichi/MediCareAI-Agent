@@ -85,6 +85,9 @@ class SearchMedicalKnowledgeTool(Tool):
         from app.services.external_search import ExternalSearchAgent
         from sqlalchemy.ext.asyncio import AsyncSession
         from app.db.session import async_session_maker
+        import logging
+        
+        logger = logging.getLogger(__name__)
 
         async with async_session_maker() as db:
             # 1. Search internal knowledge base
@@ -92,13 +95,24 @@ class SearchMedicalKnowledgeTool(Tool):
             from app.models.rag import DocType
             dt = DocType(doc_type) if doc_type else None
             rag_result = await rag.query(query=query, doc_type=dt, top_k=top_k)
+            logger.info(f"[SEARXNG_DEBUG] RAG returned {len(rag_result.get('sources', []))} sources")
 
             # 2. Search external SearXNG for real-time medical knowledge
             external = await ExternalSearchAgent.from_config(db)
+            
+            # 2a. Guidelines search
             external_results = await external.search_guidelines(query, lang="zh-CN")
-            # Also do a general search for broader coverage
+            logger.info(f"[SEARXNG_DEBUG] Guidelines search returned {len(external_results)} results")
+            
+            # 2b. General search for broader coverage
             general_raw = await external._searxng_search(query, lang="zh-CN")
+            logger.info(f"[SEARXNG_DEBUG] General search raw returned {len(general_raw)} results")
+            
             general_results = external._filter_trusted(general_raw)
+            logger.info(f"[SEARXNG_DEBUG] After filter: {len(general_results)} results")
+            if general_results:
+                for i, r in enumerate(general_results[:3]):
+                    logger.info(f"[SEARXNG_DEBUG]   Result {i+1}: score={r.trust_score}, title={r.title[:50]}")
 
             # Combine external results
             all_external = external_results + general_results
@@ -121,6 +135,7 @@ class SearchMedicalKnowledgeTool(Tool):
                 }
                 for r in unique_external[:top_k]
             ]
+            logger.info(f"[SEARXNG_DEBUG] Formatted {len(external_chunks)} external chunks")
 
             # Merge internal + external sources
             combined_sources = rag_result.get("sources", []) + [
@@ -144,6 +159,8 @@ class SearchMedicalKnowledgeTool(Tool):
                     combined_answer = external_summary
             else:
                 combined_answer = internal_answer
+            
+            logger.info(f"[SEARXNG_DEBUG] Final answer length: {len(combined_answer)} chars")
 
             return {
                 "answer": combined_answer,
