@@ -256,7 +256,7 @@ SAFETY:
     def __init__(self, provider: str | None = None) -> None:
         self.provider = provider
 
-    async def _generate_search_query(self, symptoms_summary: str) -> str:
+    async def _generate_search_query(self, symptoms_summary: str, db = None) -> str:
         """Generate an optimized medical search query from patient symptoms.
 
         Patient colloquial descriptions (e.g. '头痛还发烧') don't work well with
@@ -291,7 +291,7 @@ EXAMPLES:
 
 OUTPUT (search query only):"""
 
-        llm = LLMService(provider=self.provider)
+        llm = LLMService(provider=self.provider, db=db)
         response = await llm.chat(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
@@ -664,7 +664,8 @@ OUTPUT (search query only):"""
         # STEP 0: Generate optimized medical search query using LLM
         # Patient colloquial descriptions don't work well with search engines.
         # We need structured medical keywords for effective literature search.
-        search_query = await self._generate_search_query(enriched_symptoms)
+        async with async_session_maker() as db:
+            search_query = await self._generate_search_query(enriched_symptoms, db=db)
         logger.info(f"[SEARXNG_DEBUG] Generated search query: {search_query}")
 
         # STEP 1: ALWAYS search medical knowledge before diagnosis
