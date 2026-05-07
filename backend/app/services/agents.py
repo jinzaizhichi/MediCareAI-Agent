@@ -13,10 +13,13 @@ All agents use the unified LLM service with Tool Use and JSON Schema output.
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -252,6 +255,61 @@ SAFETY:
 
     def __init__(self, provider: str | None = None) -> None:
         self.provider = provider
+
+    async def _generate_search_query(self, symptoms_summary: str) -> str:
+        """Generate an optimized medical search query from patient symptoms.
+
+        Patient colloquial descriptions (e.g. '头痛还发烧') don't work well with
+        search engines. This method uses LLM to extract structured medical keywords
+        for effective literature search.
+
+        Returns a query string optimized for SearXNG medical search.
+        """
+        prompt = f"""You are a medical information retrieval specialist.
+
+TASK: Convert the following patient symptom summary into an optimized search query for medical literature search.
+
+PATIENT SUMMARY:
+{symptoms_summary}
+
+RULES:
+1. Extract the core symptoms and convert to standard medical terminology
+2. Include: primary symptoms + key characteristics + duration/context
+3. Add "医学" or "medical" or "clinical" or "differential diagnosis" to improve quality
+4. Keep it concise (under 100 characters ideally, max 150)
+5. Output ONLY the search query, no explanation, no quotes
+
+EXAMPLES:
+- Input: "主诉: 头痛 现病史: 额头疼痛 发烧38.5度"
+  Output: 额头痛痛 发烧 医学鉴别诊断
+
+- Input: "主诉: 胸闷 气短 现病史: 活动后加重 有高血压史"
+  Output: 胸闷 气短 高血压 心血管 医学
+
+- Input: "主诉: 腹痛 现病史: 右下腹剧痛 发烧恶心"
+  Output: 右下腹痛 发烧 恶心 急腹症 医学
+
+OUTPUT (search query only):"""
+
+        llm = LLMService(provider=self.provider)
+        response = await llm.complete(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=100,
+        )
+
+        query = response.content.strip() if hasattr(response, 'content') else str(response).strip()
+        # Remove quotes if present
+        query = query.strip('"\'')
+        # Fallback if LLM returns empty or malformed
+        if not query or len(query) < 5:
+            # Extract chief complaint as fallback
+            lines = symptoms_summary.split('\n')
+            chief = lines[0].replace("主诉: ", "") if lines else symptoms_summary[:50]
+            query = f"{chief} 医学鉴别诊断"
+
+        logger.info(f"[SEARXNG_DEBUG] Generated search query: {query}")
+        return query
 
     async def analyze(
         self,
@@ -603,15 +661,19 @@ SAFETY:
         # Build enriched symptoms from interview
         enriched_symptoms = state.get_summary()
 
+        # STEP 0: Generate optimized medical search query using LLM
+        # Patient colloquial descriptions don't work well with search engines.
+        # We need structured medical keywords for effective literature search.
+        search_query = await self._generate_search_query(enriched_symptoms)
+        logger.info(f"[SEARXNG_DEBUG] Generated search query: {search_query}")
+
         # STEP 1: ALWAYS search medical knowledge before diagnosis
         # This ensures evidence-based diagnosis, not just LLM parametric knowledge
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.info(f"[SEARXNG_DEBUG] Starting search_medical_knowledge with query: {enriched_symptoms[:100]}...")
+        logger.info(f"[SEARXNG_DEBUG] Starting search_medical_knowledge with query: {search_query[:100]}...")
         
         search_result = await GLOBAL_REGISTRY.execute(
             "search_medical_knowledge",
-            {"query": enriched_symptoms, "top_k": 5},
+            {"query": search_query, "top_k": 5},
         )
         logger.info(f"[SEARXNG_DEBUG] Search result type: {type(search_result)}, has answer: {bool(search_result) if search_result else False}")
         
@@ -634,7 +696,7 @@ SAFETY:
         # Attach the search tool call to the result so frontend can see it
         search_tool_call = {
             "tool": "search_medical_knowledge",
-            "arguments": {"query": enriched_symptoms, "top_k": 5},
+            "arguments": {"query": search_query, "top_k": 5},
             "result": search_result if search_result else {},
         }
         if diag_result.tool_calls_used is None:
