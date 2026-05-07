@@ -774,7 +774,7 @@ class DynamicInterviewEngine:
             if phase.value not in state.asked_questions and phase.value not in state.collected_info:
                 meta = PHASE_META.get(phase, {})
                 # Generate specific question based on phase and chief complaint
-                q_text = _generate_phase_question(phase, state.chief_complaint)
+                q_text = self._generate_phase_question(phase, state.chief_complaint)
                 return QuestionTemplate(
                     question_id=phase.value,
                     question=q_text,
