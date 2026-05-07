@@ -552,6 +552,87 @@ class DynamicInterviewEngine:
 
             return self._fallback_question(state), state, []
 
+    def _generate_phase_question(self, phase: InterviewPhase, chief_complaint: str) -> str:
+        """Generate a specific question for a given phase based on chief complaint keywords."""
+        chief_lower = chief_complaint.lower()
+        # Fever-related
+        if any(k in chief_lower for k in ("发烧", "发热", "热", "高烧", "低烧")):
+            if phase == InterviewPhase.HPI_LOCATION:
+                return "头疼主要在哪个位置？前额、后脑勺、两侧还是整个头？"
+            elif phase == InterviewPhase.HPI_TIMING:
+                return "发烧和头疼是持续存在还是一阵一阵的？晚上会不会加重？"
+            elif phase == InterviewPhase.HPI_AGGRAVATE:
+                return "什么情况下头疼会加重？比如低头、咳嗽或者见光的时候？"
+            elif phase == InterviewPhase.HPI_ASSOCIATED:
+                return "除了头疼发烧，还有没有咳嗽、嗓子疼、流鼻涕或者浑身酸疼？"
+            elif phase == InterviewPhase.HPI_TREATMENT:
+                return "之前有没有吃过退烧药或者看过医生？效果怎么样？"
+            elif phase == InterviewPhase.PMH_CHRONIC:
+                return "您平时身体怎么样？有没有高血压、糖尿病或者其他慢性病？"
+            elif phase == InterviewPhase.MED_CURRENT:
+                return "最近有没有在吃什么药？包括平时长期吃的药。"
+        # Headache-specific (without fever)
+        elif any(k in chief_lower for k in ("头疼", "头痛", "头晕")):
+            if phase == InterviewPhase.HPI_LOCATION:
+                return "头疼主要在哪个位置？前额、后脑勺、两侧还是整个头？"
+            elif phase == InterviewPhase.HPI_TIMING:
+                return "头疼是持续的还是一阵一阵的？什么时候比较明显？"
+            elif phase == InterviewPhase.HPI_AGGRAVATE:
+                return "什么情况下头疼会加重？休息后能缓解吗？"
+            elif phase == InterviewPhase.HPI_ASSOCIATED:
+                return "除了头疼，有没有恶心、呕吐、怕光或者视力模糊的情况？"
+            elif phase == InterviewPhase.HPI_TREATMENT:
+                return "有没有吃过止疼药？效果怎么样？"
+        # Abdominal pain / diarrhea
+        elif any(k in chief_lower for k in ("肚子疼", "腹痛", "肚疼", "拉肚子", "腹泻", "拉稀")):
+            if phase == InterviewPhase.HPI_LOCATION:
+                return "肚子疼主要是哪个位置？上腹部、肚脐周围还是下腹？"
+            elif phase == InterviewPhase.HPI_SEVERITY:
+                return "肚子疼得厉害吗？影响正常活动吗？"
+            elif phase == InterviewPhase.HPI_AGGRAVATE:
+                return "吃东西后肚子疼会加重还是减轻？"
+            elif phase == InterviewPhase.HPI_ASSOCIATED:
+                return "有没有发烧、恶心、呕吐的情况？"
+            elif phase == InterviewPhase.HPI_TREATMENT:
+                return "有没有吃过止泻药或者消炎药？"
+        # Cough / respiratory
+        elif any(k in chief_lower for k in ("咳嗽", "咳", "胸闷", "气短", "呼吸", "咳痰")):
+            if phase == InterviewPhase.HPI_SEVERITY:
+                return "咳嗽厉害吗？影响睡觉吗？"
+            elif phase == InterviewPhase.HPI_TIMING:
+                return "咳嗽是白天多还是晚上多？躺下的时候会不会加重？"
+            elif phase == InterviewPhase.HPI_ASSOCIATED:
+                return "有没有发烧、胸痛、气喘的情况？"
+            elif phase == InterviewPhase.HPI_TREATMENT:
+                return "有没有吃过止咳药或者感冒药？"
+        # Chest pain / cardiac
+        elif any(k in chief_lower for k in ("胸痛", "胸闷", "心绞痛", "心慌", "心疼")):
+            if phase == InterviewPhase.HPI_LOCATION:
+                return "胸痛具体在哪个位置？是中间还是偏左？"
+            elif phase == InterviewPhase.HPI_SEVERITY:
+                return "胸痛发作时影响活动吗？需要停下来休息吗？"
+            elif phase == InterviewPhase.HPI_AGGRAVATE:
+                return "胸痛是在活动时出现还是休息时也会疼？"
+            elif phase == InterviewPhase.HPI_ASSOCIATED:
+                return "有没有出冷汗、呼吸困难或者左肩背放射痛？"
+        # Default fallback for any phase
+        _default_questions = {
+            InterviewPhase.HPI_ONSET: "这个不舒服是什么时候开始的？突然出现还是慢慢加重的？",
+            InterviewPhase.HPI_QUALITY: "具体是什么样的感觉？比如胀痛、刺痛还是烧灼感？",
+            InterviewPhase.HPI_LOCATION: "不舒服主要在哪个部位？",
+            InterviewPhase.HPI_SEVERITY: "现在这种不舒服影响您正常活动吗？比如上班、吃饭、睡觉？",
+            InterviewPhase.HPI_TIMING: "是一直持续还是时好时坏？白天重还是晚上重？",
+            InterviewPhase.HPI_AGGRAVATE: "什么情况下会加重或者缓解？",
+            InterviewPhase.HPI_ASSOCIATED: "还有其他不舒服吗？",
+            InterviewPhase.HPI_TREATMENT: "之前有没有看过医生或者吃过药？效果怎么样？",
+            InterviewPhase.PMH_CHRONIC: "您平时身体怎么样？有没有高血压、糖尿病或者其他慢性病？",
+            InterviewPhase.PMH_ALLERGY: "有没有对药物或者食物过敏的情况？",
+            InterviewPhase.PS_LIFESTYLE: "您抽烟吗？喝酒吗？平时作息规律吗？",
+            InterviewPhase.FH_GENETIC: "家里有没有人有遗传病或者类似的疾病？",
+            InterviewPhase.MED_CURRENT: "最近有没有在吃什么药？",
+        }
+        return _default_questions.get(phase, f"关于您的{PHASE_META.get(phase, {}).get('colloquial', '情况')}，您还有什么需要补充的吗？")
+
     def _fallback_question(self, state: InterviewState) -> QuestionTemplate:
         """Generate a targeted fallback question based on chief complaint when LLM fails."""
         chief = state.chief_complaint or ""
@@ -688,13 +769,15 @@ class DynamicInterviewEngine:
                 colloquial_phase="症状情况",
             )
 
-        # Find first unasked standard phase
+        # Find first unasked standard phase (check both asked_questions AND collected_info)
         for phase in PHASE_ORDER[state.current_phase_index:]:
-            if phase.value not in state.collected_info:
+            if phase.value not in state.asked_questions and phase.value not in state.collected_info:
                 meta = PHASE_META.get(phase, {})
+                # Generate specific question based on phase and chief complaint
+                q_text = _generate_phase_question(phase, state.chief_complaint)
                 return QuestionTemplate(
                     question_id=phase.value,
-                    question=f"关于您的{meta.get('colloquial', '情况')}，您能简单说说吗？",
+                    question=q_text,
                     type="text",
                     hint="可以简单描述，也可以跳过",
                     allow_skip=True,
