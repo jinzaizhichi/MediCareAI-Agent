@@ -94,8 +94,12 @@ class SearchMedicalKnowledgeTool(Tool):
             rag = RAGService(db)
             from app.models.rag import DocType
             dt = DocType(doc_type) if doc_type else None
-            rag_result = await rag.query(query=query, doc_type=dt, top_k=top_k)
-            logger.info(f"[SEARXNG_DEBUG] RAG returned {len(rag_result.get('sources', []))} sources")
+            try:
+                rag_result = await rag.query(query=query, doc_type=dt, top_k=top_k)
+                logger.info(f"[SEARXNG_DEBUG] RAG returned {len(rag_result.get('sources', []))} sources")
+            except Exception as exc:
+                logger.warning(f"[SEARXNG_DEBUG] RAG query failed: {type(exc).__name__}: {str(exc)[:200]}")
+                rag_result = {"answer": "", "sources": [], "retrieved_chunks": 0}
 
             # 2. Search external SearXNG for real-time medical knowledge
             external = await ExternalSearchAgent.from_config(db)

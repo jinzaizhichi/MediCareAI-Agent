@@ -82,7 +82,7 @@ class RerankerService:
 
         response = await client.post(
             "/rerank",
-            json={
+            body={
                 "model": self._model,
                 "query": query,
                 "documents": documents,
