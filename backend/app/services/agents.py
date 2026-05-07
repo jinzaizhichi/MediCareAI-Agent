@@ -57,7 +57,7 @@ class DiagnosisReport(BaseModel):
                     "Always include 2-5 plausible alternatives with reasoning.",
     )
     confidence: str = Field(..., pattern="^(high|medium|low)$", description="Confidence level in the primary diagnosis")
-    severity: str = Field(..., pattern="^(mild|moderate|severe|emergency)$", description="Severity assessment of the condition")
+    severity: str = Field(default="unknown", pattern="^(mild|moderate|severe|emergency|unknown)$", description="Severity assessment of the condition")
     key_findings: list[str] = Field(
         default_factory=list,
         description="Key clinical findings that support or refute the diagnosis",
