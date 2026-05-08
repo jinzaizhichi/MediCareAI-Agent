@@ -1025,7 +1025,7 @@ class AgentOrchestrator:
         # Create a session for tracking
         session = await self._create_session(
             user_id=uuid.UUID(patient_id) if patient_id else None,
-            session_type=AgentSessionType(intent.upper()),
+            session_type=AgentSessionType(intent),
             intent=intent,
         )
         session_id = str(session.id) if session else None
