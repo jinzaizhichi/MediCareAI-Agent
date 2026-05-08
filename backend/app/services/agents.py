@@ -1029,14 +1029,35 @@ class AgentOrchestrator:
             intent=intent,
         )
         session_id = str(session.id) if session else None
+        sid = uuid.UUID(session_id) if session_id else None
+
+        if sid:
+            await self._create_task(
+                session_id=sid,
+                agent_type="master",
+                task_name="classify_intent",
+                status="completed",
+                input_params={"message": user_input},
+                output_result=intent_result,
+            )
 
         # Step 2: Route to appropriate Agent
         if intent == "diagnosis":
+            await self._create_task(
+                session_id=sid, agent_type="diagnosis", task_name="analyze",
+                status="running", input_params={"symptoms": user_input},
+            )
             result = await self.diagnosis.analyze(
                 symptoms=user_input,
                 patient_id=patient_id,
                 patient_history=patient_history,
                 session_id=session_id,
+            )
+            await self._create_task(
+                session_id=sid, agent_type="diagnosis", task_name="analyze",
+                status="completed",
+                output_result=result.content if isinstance(result.content, dict) else {"output": str(result.content)},
+                tool_calls=result.tool_calls_used,
             )
             return {
                 "intent": intent_result,
@@ -1047,9 +1068,18 @@ class AgentOrchestrator:
             }
 
         elif intent == "planning":
+            await self._create_task(
+                session_id=sid, agent_type="planning", task_name="plan",
+                status="running", input_params={"diagnosis": user_input},
+            )
             result = await self.planning.plan(
                 diagnosis=user_input,
                 session_id=session_id,
+            )
+            await self._create_task(
+                session_id=sid, agent_type="planning", task_name="plan",
+                status="completed",
+                output_result=result.content if isinstance(result.content, dict) else {"output": str(result.content)},
             )
             return {
                 "intent": intent_result,
@@ -1059,9 +1089,18 @@ class AgentOrchestrator:
             }
 
         elif intent == "monitoring":
+            await self._create_task(
+                session_id=sid, agent_type="monitoring", task_name="check",
+                status="running", input_params={"updates": user_input},
+            )
             result = await self.monitoring.check(
                 patient_updates=user_input,
                 session_id=session_id,
+            )
+            await self._create_task(
+                session_id=sid, agent_type="monitoring", task_name="check",
+                status="completed",
+                output_result=result.content if isinstance(result.content, dict) else {"output": str(result.content)},
             )
             return {
                 "intent": intent_result,
@@ -1071,10 +1110,19 @@ class AgentOrchestrator:
             }
 
         elif intent == "research":
+            await self._create_task(
+                session_id=sid, agent_type="research", task_name="research",
+                status="running", input_params={"query": user_input},
+            )
             result = await self.research.research(
                 query=user_input,
                 patient_context=patient_history,
                 session_id=session_id,
+            )
+            await self._create_task(
+                session_id=sid, agent_type="research", task_name="research",
+                status="completed",
+                output_result=result.content if isinstance(result.content, dict) else {"output": str(result.content)},
             )
             return {
                 "intent": intent_result,
@@ -1144,6 +1192,38 @@ class AgentOrchestrator:
                 await db.commit()
                 await db.refresh(session)
                 return session
+        except Exception:
+            return None
+
+    async def _create_task(
+        self,
+        session_id: uuid.UUID,
+        agent_type: str,
+        task_name: str,
+        status: str = "pending",
+        input_params: dict[str, Any] | None = None,
+        output_result: dict[str, Any] | None = None,
+        tool_calls: list[dict[str, Any]] | None = None,
+        error_message: str | None = None,
+    ) -> AgentTask | None:
+        """Persist an atomic agent task for audit and debugging."""
+        try:
+            async with async_session_maker() as db:
+                task = AgentTask(
+                    session_id=session_id,
+                    agent_type=agent_type,
+                    task_name=task_name,
+                    status=status,
+                    input_params=input_params or {},
+                    output_result=output_result,
+                    tool_calls=tool_calls,
+                    error_message=error_message,
+                    started_at=datetime.now(timezone.utc) if status == "running" else None,
+                    completed_at=datetime.now(timezone.utc) if status in ("completed", "failed") else None,
+                )
+                db.add(task)
+                await db.commit()
+                return task
         except Exception:
             return None
 
