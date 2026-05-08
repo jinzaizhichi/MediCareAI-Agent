@@ -24,7 +24,7 @@ export function buildApiUrl(path: string): string {
   if (base.startsWith('http')) {
     return base + path;
   }
-  return new URL(path, window.location.origin).toString();
+  return window.location.origin + base + path;
 }
 
 export const API_BASE = ensureHttps(rawBase);
