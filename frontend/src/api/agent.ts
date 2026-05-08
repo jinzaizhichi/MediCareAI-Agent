@@ -185,98 +185,58 @@ export function streamDiagnose(
 }
 
 /**
- * 续传流式对话 (SSE via POST + fetch ReadableStream)
- * POST /api/v1/agents/route/stream/continue
+ * 续传流式对话 (SSE via GET + EventSource)
+ * GET /api/v1/agents/route/stream/continue?session_id=...&question_id=...&answer=...
  */
 export function streamDiagnoseContinue(
   payload: { session_id: string; question_id: string; answer: string },
   onEvent: (event: SSEEvent) => void
 ): Promise<void> {
-  return new Promise(async (resolve, reject) => {
-    try {
-      const res = await fetch(`${API_BASE}/agents/route/stream/continue`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify(payload),
+  return new Promise((resolve, reject) => {
+    const params = new URLSearchParams();
+    params.set('session_id', payload.session_id);
+    params.set('question_id', payload.question_id);
+    params.set('answer', payload.answer);
+
+    // EventSource 不支持自定义 headers，将 token 通过 URL query 传递
+    const token = getToken();
+    const guestToken = getGuestToken();
+    if (guestToken) params.set('guest_token', guestToken);
+    else if (token) params.set('token', token);
+
+    const url = `${API_BASE}/agents/route/stream/continue?${params.toString()}`;
+    const eventSource = new EventSource(url);
+
+    // 处理命名事件
+    const namedEvents: SSEEventType[] = ['intent', 'agent_switch', 'thinking', 'tool_call', 'tool_result', 'structured', 'text', 'question', 'interview_progress', 'complete', 'error'];
+    namedEvents.forEach(eventName => {
+      eventSource.addEventListener(eventName, (e) => {
+        try {
+          const parsed = JSON.parse((e as MessageEvent).data);
+          onEvent({ event: eventName, data: parsed });
+          if (eventName === 'complete') {
+            eventSource.close();
+            resolve();
+          }
+          if (eventName === 'error') {
+            eventSource.close();
+            reject(new Error(parsed.message || 'SSE error'));
+          }
+        } catch {
+          onEvent({ event: eventName, data: { raw: (e as MessageEvent).data } });
+        }
       });
+    });
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        reject(new Error(err.detail || `HTTP ${res.status}`));
-        return;
-      }
+    // 默认消息处理（无事件名的数据，作为安全回退）
+    eventSource.onmessage = (e) => {
+      onEvent({ event: 'text', data: { text: e.data } });
+    };
 
-      const reader = res.body?.getReader();
-      if (!reader) {
-        reject(new Error('No response body'));
-        return;
-      }
-
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let currentEvent: SSEEventType = 'text';
-      let currentData = '';
-
-      const flushEvent = () => {
-        if (currentData) {
-          try {
-            const parsed = JSON.parse(currentData);
-            onEvent({ event: currentEvent, data: parsed });
-          } catch {
-            onEvent({ event: currentEvent, data: { raw: currentData } });
-          }
-        }
-        currentEvent = 'text';
-        currentData = '';
-      };
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-          // Flush any remaining bytes in the TextDecoder (important for multi-byte UTF-8 chars)
-          buffer += decoder.decode();
-          // Process any remaining buffered lines
-          if (buffer) {
-            const lines = buffer.split('\n');
-            for (const line of lines) {
-              const trimmed = line.trim();
-              if (trimmed === '') {
-                flushEvent();
-                continue;
-              }
-              if (trimmed.startsWith('event:')) {
-                currentEvent = trimmed.slice(6).trim() as SSEEventType;
-              } else if (trimmed.startsWith('data:')) {
-                currentData += trimmed.slice(5).trim();
-              }
-            }
-          }
-          flushEvent();
-          break;
-        }
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (trimmed === '') {
-            flushEvent();
-            continue;
-          }
-          if (trimmed.startsWith('event:')) {
-            currentEvent = trimmed.slice(6).trim() as SSEEventType;
-          } else if (trimmed.startsWith('data:')) {
-            currentData += trimmed.slice(5).trim();
-          }
-        }
-      }
-
-      resolve();
-    } catch (e) {
-      reject(e instanceof Error ? e : new Error(String(e)));
-    }
+    eventSource.onerror = () => {
+      eventSource.close();
+      reject(new Error('SSE connection failed'));
+    };
   });
 }
 

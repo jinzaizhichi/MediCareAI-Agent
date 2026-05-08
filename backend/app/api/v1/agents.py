@@ -614,17 +614,11 @@ Use Markdown formatting for readability.""",
     )
 
 
-class StreamContinueRequest(BaseModel):
-    """Continue an interview or diagnosis after user answers a question."""
-
-    session_id: str = Field(..., description="Agent session ID")
-    question_id: str = Field(..., description="ID of the question being answered")
-    answer: str = Field(..., description="User's answer")
-
-
-@router.post("/route/stream/continue")
+@router.get("/route/stream/continue")
 async def route_stream_continue(
-    req: StreamContinueRequest,
+    session_id: str,
+    question_id: str,
+    answer: str,
     ctx: CurrentUserContext,
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
@@ -643,7 +637,7 @@ async def route_stream_continue(
     """
     async def event_generator():
         # Look up the session
-        stmt = select(AgentSession).where(AgentSession.id == uuid.UUID(req.session_id))
+        stmt = select(AgentSession).where(AgentSession.id == uuid.UUID(session_id))
         result = await db.execute(stmt)
         session = result.scalar_one_or_none()
 
@@ -656,9 +650,9 @@ async def route_stream_continue(
         # Process answer using new clinical interview engine
         try:
             next_q, state = await diag_agent.interview_answer(
-                session_id=req.session_id,
-                question_id=req.question_id,
-                answer=req.answer,
+                session_id=session_id,
+                question_id=question_id,
+                answer=answer,
             )
         except Exception as e:
             yield f"event: error\ndata: {json.dumps({'error': f'Interview error: {e}'})}\n\n"
@@ -678,13 +672,13 @@ async def route_stream_continue(
                 "colloquial_phase": next_q.colloquial_phase,
             }
             yield f"event: question\ndata: {json.dumps(q_payload)}\n\n"
-            yield f"event: complete\ndata: {json.dumps({'status': 'waiting_for_answer', 'session_id': req.session_id})}\n\n"
+            yield f"event: complete\ndata: {json.dumps({'status': 'waiting_for_answer', 'session_id': session_id})}\n\n"
             return
 
         # Check for red flags
         if state.red_flags_detected:
             yield f"event: red_flags\ndata: {json.dumps({'red_flags': state.red_flags_detected, 'message': '检测到危险信号，建议立即就医'})}\n\n"
-            yield f"event: complete\ndata: {json.dumps({'status': 'red_flags', 'session_id': req.session_id})}\n\n"
+            yield f"event: complete\ndata: {json.dumps({'status': 'red_flags', 'session_id': session_id})}\n\n"
             return
 
         # Interview complete — proceed to diagnosis using structured summary
@@ -697,7 +691,7 @@ async def route_stream_continue(
             
             # Use the new full workflow which generates enriched symptoms from interview state
             result = await diag_agent.run_full_diagnosis_workflow(
-                session_id=req.session_id,
+                session_id=session_id,
                 patient_id=str(session.user_id) if session.user_id else None,
             )
 
