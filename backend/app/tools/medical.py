@@ -31,7 +31,7 @@ class SearchKnowledgeParams(BaseModel):
         None,
         description="Filter by document type: platform_guideline, case_report, drug_reference",
     )
-    top_k: int = Field(5, description="Number of top results to retrieve", ge=1, le=20)
+    top_k: int = Field(10, description="Number of top results to retrieve", ge=1, le=20)
 
 
 class QueryPatientHistoryParams(BaseModel):
@@ -79,7 +79,7 @@ class SearchMedicalKnowledgeTool(Tool):
     )
     parameters = SearchKnowledgeParams
 
-    async def execute(self, query: str, doc_type: str | None = None, top_k: int = 5) -> dict[str, Any]:
+    async def execute(self, query: str, doc_type: str | None = None, top_k: int = 10) -> dict[str, Any]:
         # Deferred import to avoid circular deps at module load time
         from app.services.rag import RAGService
         from app.services.external_search import ExternalSearchAgent

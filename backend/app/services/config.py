@@ -110,7 +110,7 @@ class DynamicConfigService:
 
     @classmethod
     async def guest_max_messages(cls, db: AsyncSession) -> int:
-        return await cls.get_int(db, "guest.max_messages", default=10)
+        return await cls.get_int(db, "guest.max_messages", default=999)
 
     @classmethod
     async def cors_origins(cls, db: AsyncSession) -> list[str]:
@@ -148,7 +148,7 @@ class DynamicConfigService:
 
     @classmethod
     async def external_search_timeout(cls, db: AsyncSession) -> int:
-        return await cls.get_int(db, "external_search.timeout", default=10)
+        return await cls.get_int(db, "external_search.timeout", default=30)
 
     @classmethod
     async def external_search_max_results(cls, db: AsyncSession) -> int:

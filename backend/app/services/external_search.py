@@ -149,7 +149,7 @@ class ExternalSearchAgent:
         self,
         topic: str,
         lang: str = "zh-CN",
-        max_results: int = 5,
+        max_results: int = 10,
     ) -> list[SearchResult]:
         """Search academic papers / clinical studies.
 
@@ -228,6 +228,7 @@ class ExternalSearchAgent:
             "format": "json",
             "language": lang,
             "safesearch": "0",
+            "num_results": 20,
         }
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:

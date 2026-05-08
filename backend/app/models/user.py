@@ -101,6 +101,6 @@ class GuestSession(Base):
     session_token: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     fingerprint: Mapped[str | None] = mapped_column(String(255), nullable=True)
     message_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    max_messages: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
+    max_messages: Mapped[int] = mapped_column(Integer, default=999, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
