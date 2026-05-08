@@ -237,7 +237,13 @@ export default function ChatPage() {
                 break;
               case 'question': {
                 const q = event.data as unknown as { question_id: string; question: string; type: 'choice' | 'text'; options?: string[]; hint?: string; allow_skip?: boolean };
-                pendingSessionRef.current = { sessionId: pendingSessionRef.current?.sessionId || '', questionId: q.question_id };
+                // sessionId will be set when 'complete' event with status='waiting_for_answer' arrives
+                // For now, just set the questionId; sessionId is updated in the 'complete' handler
+                if (!pendingSessionRef.current) {
+                  pendingSessionRef.current = { sessionId: '', questionId: q.question_id };
+                } else {
+                  pendingSessionRef.current.questionId = q.question_id;
+                }
                 setMessages((prev) => {
                   const idx = prev.findIndex((m) => m.id === agentMsgId);
                   if (idx === -1) {
@@ -309,6 +315,7 @@ export default function ChatPage() {
                       pendingSessionRef.current = { sessionId: sid, questionId: '' };
                     } else {
                       pendingSessionRef.current.sessionId = sid;
+                      // Keep the existing questionId, don't overwrite it
                     }
                   }
                   // Keep isStreaming=true so InterviewQuestion stays enabled
@@ -344,7 +351,7 @@ export default function ChatPage() {
   const handleInterviewAnswer = useCallback(
     async (questionId: string, answer: string) => {
       const pending = pendingSessionRef.current;
-      if (!pending || !pending.sessionId) return;
+      if (!pending || !pending.questionId) return;
 
       // Disable the previous agent message's interview question
       setMessages((prev) => {
@@ -445,7 +452,13 @@ export default function ChatPage() {
                 break;
               case 'question': {
                 const q = event.data as unknown as { question_id: string; question: string; type: 'choice' | 'text'; options?: string[]; hint?: string; allow_skip?: boolean };
-                pendingSessionRef.current = { sessionId: pendingSessionRef.current?.sessionId || '', questionId: q.question_id };
+                // sessionId will be set when 'complete' event with status='waiting_for_answer' arrives
+                // For now, just set the questionId; sessionId is updated in the 'complete' handler
+                if (!pendingSessionRef.current) {
+                  pendingSessionRef.current = { sessionId: '', questionId: q.question_id };
+                } else {
+                  pendingSessionRef.current.questionId = q.question_id;
+                }
                 setMessages((prev) => {
                   const idx = prev.findIndex((m) => m.id === agentMsgId);
                   if (idx === -1) {
@@ -517,6 +530,7 @@ export default function ChatPage() {
                       pendingSessionRef.current = { sessionId: sid, questionId: '' };
                     } else {
                       pendingSessionRef.current.sessionId = sid;
+                      // Keep the existing questionId, don't overwrite it
                     }
                   }
                   break;
