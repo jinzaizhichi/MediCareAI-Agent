@@ -198,7 +198,7 @@ class LLMService:
         self,
         messages: list[dict[str, str]],
         model: str | None = None,
-        temperature: float = 0.7,
+        temperature: float | None = None,
         max_tokens: int | None = None,
         system_prompt: str | None = None,
     ) -> LLMResponse:
@@ -217,7 +217,6 @@ class LLMService:
         response = await client.chat.completions.create(
             model=model or default_model,
             messages=msgs,  # type: ignore[arg-type]
-            temperature=temperature,
             max_tokens=max_tokens,
             stream=False,
         )
@@ -252,7 +251,7 @@ class LLMService:
         self,
         messages: list[dict[str, str]],
         model: str | None = None,
-        temperature: float = 0.7,
+        temperature: float | None = None,
         max_tokens: int | None = None,
         system_prompt: str | None = None,
     ) -> AsyncIterator[str]:
@@ -271,7 +270,6 @@ class LLMService:
         stream = await client.chat.completions.create(
             model=model or default_model,
             messages=msgs,  # type: ignore[arg-type]
-            temperature=temperature,
             max_tokens=max_tokens,
             stream=True,
         )
@@ -290,7 +288,7 @@ class LLMService:
         messages: list[dict[str, str]],
         tools: list[dict[str, Any]],
         model: str | None = None,
-        temperature: float = 0.7,
+        temperature: float | None = None,
         max_tokens: int | None = None,
         system_prompt: str | None = None,
         tool_choice: str = "auto",
@@ -314,7 +312,6 @@ class LLMService:
         response = await client.chat.completions.create(
             model=model or default_model,
             messages=msgs,  # type: ignore[arg-type]
-            temperature=temperature,
             max_tokens=max_tokens,
             tools=tools,  # type: ignore[arg-type]
             tool_choice=tool_choice,  # type: ignore[arg-type]
@@ -356,7 +353,7 @@ class LLMService:
         messages: list[dict[str, str]],
         output_schema: type[BaseModel],
         model: str | None = None,
-        temperature: float = 0.2,
+        temperature: float | None = None,
         max_tokens: int | None = None,
         system_prompt: str | None = None,
     ) -> BaseModel:
@@ -395,7 +392,6 @@ class LLMService:
             response = await client.chat.completions.create(
                 model=model or default_model,
                 messages=msgs,  # type: ignore[arg-type]
-                temperature=temperature,
                 max_tokens=max_tokens,
                 response_format={
                     "type": "json_schema",
@@ -412,7 +408,6 @@ class LLMService:
             response = await client.chat.completions.create(
                 model=model or default_model,
                 messages=msgs,  # type: ignore[arg-type]
-                temperature=temperature,
                 max_tokens=max_tokens,
                 stream=False,
             )

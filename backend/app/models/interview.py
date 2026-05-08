@@ -653,7 +653,6 @@ class DynamicInterviewEngine:
             response = await self.llm.chat(
                 messages=[{"role": "user", "content": prompt}],
                 system_prompt=INTERVIEW_SYSTEM_PROMPT,
-                temperature=0.3,
                 max_tokens=2000,  # Increased for longer reasoning + differential diagnoses
             )
 
@@ -726,7 +725,6 @@ class DynamicInterviewEngine:
                     retry_response = await self.llm.chat(
                         messages=[{"role": "user", "content": retry_prompt}],
                         system_prompt=INTERVIEW_SYSTEM_PROMPT,
-                        temperature=0.2,
                         max_tokens=2000,
                     )
                     retry_raw = _extract_json(retry_response.content)
@@ -851,7 +849,6 @@ class DynamicInterviewEngine:
             response = await self.llm.chat(
                 messages=[{"role": "user", "content": extract_prompt}],
                 system_prompt="你是医学信息提取和鉴别诊断更新助手。从患者回答中提取信息并更新鉴别诊断列表。只返回JSON。",
-                temperature=0.1,
                 max_tokens=1024,
             )
             raw = _extract_json(response.content)

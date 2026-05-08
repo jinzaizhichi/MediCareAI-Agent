@@ -357,7 +357,6 @@ RULES:
             resp = await llm.chat(
                 messages=[{"role": "user", "content": user_msg}],
                 system_prompt=system_prompt,
-                temperature=0.2,
                 max_tokens=2048,
             )
 

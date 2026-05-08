@@ -194,7 +194,6 @@ RULES:
             resp = await llm.chat(
                 messages=[{"role": "user", "content": user_input}],
                 system_prompt=self.SYSTEM_PROMPT,
-                temperature=0.1,
                 max_tokens=512,
             )
             try:
@@ -295,7 +294,6 @@ OUTPUT (search query only):"""
         llm = LLMService(provider=self.provider, db=db)
         response = await llm.chat(
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
             max_tokens=300,
         )
 
@@ -364,7 +362,6 @@ OUTPUT (search query only):"""
                     messages=messages,
                     tools=tool_schemas,
                     system_prompt=self.SYSTEM_PROMPT,
-                    temperature=0.2,
                     max_tokens=2048,
                     tool_choice="auto",
                 )
@@ -436,7 +433,6 @@ OUTPUT (search query only):"""
                     structured = await llm.generate_structured(
                         messages=force_messages,
                         output_schema=DiagnosisReport,
-                        temperature=0.2,
                         max_tokens=2048,
                     )
                 except Exception:
@@ -787,7 +783,6 @@ OUTPUT: Always use the structured treatment plan format.
                 messages=[{"role": "user", "content": user_msg}],
                 output_schema=TreatmentPlan,
                 system_prompt=self.SYSTEM_PROMPT,
-                temperature=0.3,
                 max_tokens=2048,
             )
 
@@ -840,7 +835,6 @@ OUTPUT: Always use the structured monitoring assessment format.
                 messages=[{"role": "user", "content": user_msg}],
                 output_schema=MonitoringAssessment,
                 system_prompt=self.SYSTEM_PROMPT,
-                temperature=0.2,
                 max_tokens=1536,
             )
 
@@ -923,7 +917,6 @@ ROLE:
                 messages=[{"role": "user", "content": user_msg}],
                 output_schema=ResearchResult,
                 system_prompt=self.SYSTEM_PROMPT,
-                temperature=0.3,
                 max_tokens=2048,
             )
 

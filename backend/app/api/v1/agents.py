@@ -594,7 +594,6 @@ Use Markdown formatting for readability.""",
                     async for chunk in llm.chat_stream(
                         messages=messages,
                         system_prompt=system_prompt,
-                        temperature=0.3,
                         max_tokens=2048,
                     ):
                         yield f"event: text\ndata: {json.dumps({'text': chunk})}\n\n"

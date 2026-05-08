@@ -24,7 +24,7 @@ class ChatRequest(BaseModel):
     messages: list[dict[str, str]] = Field(..., min_length=1)
     model: str | None = None
     provider: str | None = Field(None, description="Provider name (e.g. openai, moonshot). Uses default if omitted.")
-    temperature: float = Field(0.7, ge=0.0, le=2.0)
+    temperature: float | None = Field(None, ge=0.0, le=2.0)
     max_tokens: int | None = Field(None, ge=1, le=8192)
     system_prompt: str | None = None
     stream: bool = False
