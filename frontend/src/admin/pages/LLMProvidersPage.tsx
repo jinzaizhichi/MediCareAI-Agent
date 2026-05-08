@@ -56,8 +56,8 @@ const PROVIDER_GUIDES: Record<string, ProviderGuide> = {
     name: 'Moonshot AI (Kimi)',
     baseUrl: `${PROVIDER_DOMAINS.moonshot.api}/v1`,
     models: [
-      { id: 'kimi-2.5', label: 'kimi-2.5（推荐，长上下文通用模型）', type: 'diagnosis' },
-      { id: 'kimi-2.6', label: 'kimi-2.6（推荐，最新旗舰模型）', type: 'diagnosis' },
+      { id: 'kimi-k2.5', label: 'kimi-k2.5（推荐，长上下文通用模型）', type: 'diagnosis' },
+      { id: 'kimi-k2.6', label: 'kimi-k2.6（推荐，最新旗舰模型）', type: 'diagnosis' },
     ],
     notes: [
       '支持 OpenAI 兼容 API 格式',
