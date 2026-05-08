@@ -233,6 +233,8 @@ export function streamDiagnoseContinue(
       while (true) {
         const { done, value } = await reader.read();
         if (done) {
+          // Flush any remaining bytes in the TextDecoder (important for multi-byte UTF-8 chars)
+          buffer += decoder.decode();
           // Process any remaining buffered lines
           if (buffer) {
             const lines = buffer.split('\n');

@@ -540,6 +540,17 @@ export default function ChatPage() {
         setMessages((prev) => [...prev, { id: generateId(), role: 'agent', content: `❌ 续传失败，请检查网络后重试`, timestamp: new Date() }]);
         setIsStreaming(false);
       }
+      // Safety net: ensure streaming stops even if complete event was missed
+      if (isStreaming) {
+        setIsStreaming(false);
+        setMessages((prev) => {
+          const idx = prev.findIndex((m) => m.id === agentMsgId);
+          if (idx === -1) return prev;
+          const next = prev.slice();
+          next[idx] = { ...next[idx], isStreaming: false, workflowSteps: [...workflowSteps] };
+          return next;
+        });
+      }
     },
     []
   );
