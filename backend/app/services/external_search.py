@@ -111,7 +111,7 @@ class ExternalSearchAgent:
             db, "external_search.base_url", default="http://searxng:8080"
         )
         timeout = await DynamicConfigService.get_int(
-            db, "external_search.timeout", default=5
+            db, "external_search.timeout", default=60
         )
         return cls(base_url=base_url or "http://searxng:8080", timeout=timeout)
 
