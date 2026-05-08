@@ -174,12 +174,18 @@ class InterviewState:
     asked_questions: list[str] = field(default_factory=list)
     current_question_id: str | None = None
     is_sufficient: bool = False
-    max_questions: int = 12          # Soft upper limit
     min_questions: int = 3           # Minimum before allowing completion
     current_phase_index: int = 0     # Kept for backward compat; not used as sequence constraint
     red_flags_detected: list[str] = field(default_factory=list)
     # Tool calls made during interview
     interview_tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    # Anti-loop: stagnation detection
+    stagnation_counter: int = 0      # Consecutive rounds without new info
+    last_collected_count: int = 0    # Info dimension count in last round
+    # User explicitly ended interview
+    user_ended: bool = False
+    # Interview phase tracking
+    phase: str = "interviewing"      # interviewing | diagnosing | followup | completed
 
     # Internal keys for storing differential diagnosis info in collected_info (DB compatibility)
     _DIFF_KEY = "__differential_diagnoses__"
@@ -193,11 +199,14 @@ class InterviewState:
             "asked_questions": self.asked_questions,
             "current_question_id": self.current_question_id,
             "is_sufficient": self.is_sufficient,
-            "max_questions": self.max_questions,
             "min_questions": self.min_questions,
             "current_phase_index": self.current_phase_index,
             "red_flags_detected": self.red_flags_detected,
             "interview_tool_calls": self.interview_tool_calls,
+            "stagnation_counter": self.stagnation_counter,
+            "last_collected_count": self.last_collected_count,
+            "user_ended": self.user_ended,
+            "phase": self.phase,
         }
 
     @classmethod
@@ -209,11 +218,14 @@ class InterviewState:
             asked_questions=data.get("asked_questions", []),
             current_question_id=data.get("current_question_id"),
             is_sufficient=data.get("is_sufficient", False),
-            max_questions=data.get("max_questions", 12),
             min_questions=data.get("min_questions", 3),
             current_phase_index=data.get("current_phase_index", 0),
             red_flags_detected=data.get("red_flags_detected", []),
             interview_tool_calls=data.get("interview_tool_calls", []),
+            stagnation_counter=data.get("stagnation_counter", 0),
+            last_collected_count=data.get("last_collected_count", 0),
+            user_ended=data.get("user_ended", False),
+            phase=data.get("phase", "interviewing"),
         )
 
     # ---- Differential diagnosis helpers (store in collected_info for compatibility) ----
@@ -457,7 +469,9 @@ next_question:
 - 已问过的问题（见 asked_questions 列表）不要再重复问
 - 优先问现病史细节，现病史问清楚后再简短问既往史/用药史
 - 最少问3个问题后才允许 sufficient=true
-- 最多问12个问题，达到上限必须结束
+- 【无次数上限】没有固定的问题数量限制，你应当像真实医生一样，根据鉴别诊断的需要自由提问
+- 【防循环规则】不要连续问相似的问题；如果连续几轮都没有获取到新的鉴别诊断关键信息，请主动判定 sufficient=true 并结束问诊
+- 已问过的问题（见 asked_questions 列表）不要再重复问
 
 ## 关键规则（必须严格遵守）
 - sufficient=true 时，next_question 必须为 null
@@ -540,8 +554,10 @@ def _build_interview_prompt(
     if patient_history:
         lines.append(f"## 患者既往病史\n{patient_history}\n")
 
-    # Question count
-    lines.append(f"已问 {len(state.asked_questions)} 个问题，最少 {state.min_questions} 个，最多 {state.max_questions} 个。")
+    # Question count + stagnation info
+    lines.append(f"已问 {len(state.asked_questions)} 个问题，最少 {state.min_questions} 个。")
+    if state.stagnation_counter > 0:
+        lines.append(f"⚠️ 连续 {state.stagnation_counter} 轮未获取新的信息维度。如果再次没有新信息，请考虑判定 sufficient=true。")
     if state.asked_questions:
         lines.append(f"已问问题 ID: {', '.join(state.asked_questions)}")
     lines.append("")
@@ -566,8 +582,6 @@ def _build_interview_prompt(
     if len(state.asked_questions) < state.min_questions:
         lines.append("尚未达到最少问诊数量，请继续提问。")
         lines.append("请根据主诉建立鉴别诊断列表，然后设计最有针对性的问题。")
-    elif len(state.asked_questions) >= state.max_questions:
-        lines.append("已达到最大问诊数量上限，请判定信息是否足够进行初步诊断。")
     else:
         hpi_phases = [p.value for p in PHASE_ORDER[:8]]
         hpi_covered = sum(1 for p in hpi_phases if p in state.collected_info)
@@ -579,7 +593,10 @@ def _build_interview_prompt(
         lines.append("")
         lines.append("规则：sufficient=true 仅在以下情况允许：")
         lines.append("  - 已覆盖 ≥3 个现病史维度，且已问 ≥3 个问题；或")
-        lines.append("  - 已达到 max_questions 上限。")
+        lines.append("  - 连续多轮未获取新信息维度，鉴别诊断无法进一步精进。")
+        if state.stagnation_counter >= 3:
+            lines.append("")
+            lines.append("⚠️ 紧急提示：已连续多轮未获取新信息。请立刻判定是否信息充足，如果充足则返回 sufficient=true，不充足则提供一个能获取全新信息的问题。")
 
     return "\n".join(lines)
 
@@ -665,15 +682,24 @@ class DynamicInterviewEngine:
                 ]
                 state.set_differential_diagnoses(diffs)
 
-            # Check sufficiency — enforce minimum coverage
-            if decision.sufficient or len(state.asked_questions) >= state.max_questions:
+            # Check sufficiency — enforce minimum coverage + stagnation guard
+            current_collected = len([k for k in state.collected_info if not k.startswith("__")])
+            if current_collected <= state.last_collected_count:
+                state.stagnation_counter += 1
+            else:
+                state.stagnation_counter = 0
+            state.last_collected_count = current_collected
+
+            # Stagnation hard-stop: if >=5 rounds without new info, force stop
+            if state.stagnation_counter >= 5 and len(state.asked_questions) >= state.min_questions:
+                state.is_sufficient = True
+                state.current_question_id = None
+                return None, state, []
+
+            if decision.sufficient:
                 hpi_phases = [p.value for p in PHASE_ORDER[:8]]
                 hpi_covered = sum(1 for p in hpi_phases if p in state.collected_info)
-                if hpi_covered >= 3 and len(state.asked_questions) >= 3:
-                    state.is_sufficient = True
-                    state.current_question_id = None
-                    return None, state, []
-                elif len(state.asked_questions) >= state.max_questions:
+                if hpi_covered >= 3 and len(state.asked_questions) >= state.min_questions:
                     state.is_sufficient = True
                     state.current_question_id = None
                     return None, state, []
@@ -685,7 +711,7 @@ class DynamicInterviewEngine:
                 # Retry ONCE with a simpler, more forceful prompt before falling back.
                 hpi_phases = [p.value for p in PHASE_ORDER[:8]]
                 hpi_covered = sum(1 for p in hpi_phases if p in state.collected_info)
-                if len(state.asked_questions) >= state.max_questions or (hpi_covered >= 3 and len(state.asked_questions) >= 3):
+                if hpi_covered >= 3 and len(state.asked_questions) >= state.min_questions:
                     state.is_sufficient = True
                     state.current_question_id = None
                     return None, state, []
@@ -756,7 +782,7 @@ class DynamicInterviewEngine:
             # LLM failed — fallback
             hpi_phases = [p.value for p in PHASE_ORDER[:8]]
             hpi_covered = sum(1 for p in hpi_phases if p in state.collected_info)
-            if len(state.asked_questions) >= state.max_questions or (hpi_covered >= 5 and len(state.asked_questions) >= 5):
+            if state.stagnation_counter >= 5 or (hpi_covered >= 5 and len(state.asked_questions) >= 5):
                 state.is_sufficient = True
                 state.current_question_id = None
                 return None, state, []

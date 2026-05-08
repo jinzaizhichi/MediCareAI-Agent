@@ -545,9 +545,9 @@ OUTPUT (search query only):"""
             await self._update_interview_state(session_id, state)
             return None, state
 
-        # If already sufficient, skip
-        if state.is_sufficient or len(state.asked_questions) >= state.max_questions:
-            if len(state.asked_questions) >= state.min_questions:
+        # If already sufficient or user ended, skip
+        if state.is_sufficient or state.user_ended or state.stagnation_counter >= 5:
+            if len(state.asked_questions) >= state.min_questions or state.stagnation_counter >= 5:
                 state.is_sufficient = True
                 state.current_question_id = None
                 await self._update_interview_state(session_id, state)
