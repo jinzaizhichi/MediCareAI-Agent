@@ -161,8 +161,8 @@ class LLMService:
 
     async def _get_client(self) -> AsyncOpenAI:
         """Get configured AsyncOpenAI client."""
-        # Auto-resolve provider if not specified
-        if self.provider is None and self._db is not None:
+        # Auto-resolve provider if not specified (handles both None and empty string)
+        if not self.provider and self._db is not None:
             self.provider = await _get_default_provider(self._db, self.platform)
 
         config = await _get_provider_config(self._db, self.provider, self.platform)

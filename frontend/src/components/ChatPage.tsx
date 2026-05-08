@@ -512,8 +512,12 @@ export default function ChatPage() {
                 const status = event.data?.status as string;
                 if (status === 'waiting_for_answer') {
                   const sid = event.data?.session_id as string;
-                  if (sid && pendingSessionRef.current) {
-                    pendingSessionRef.current.sessionId = sid;
+                  if (sid) {
+                    if (!pendingSessionRef.current) {
+                      pendingSessionRef.current = { sessionId: sid, questionId: '' };
+                    } else {
+                      pendingSessionRef.current.sessionId = sid;
+                    }
                   }
                   break;
                 }
@@ -537,79 +541,76 @@ export default function ChatPage() {
           }
         );
       } catch {
-        setMessages((prev) => [...prev, { id: generateId(), role: 'agent', content: `❌ 续传失败，请检查网络后重试`, timestamp: new Date() }]);
+        setMessages((prev) => [...prev, { id: generateId(), role: 'agent', content: `❌ 连接失败，请检查网络后重试`, timestamp: new Date() }]);
         setIsStreaming(false);
-      }
-      // Safety net: ensure streaming stops even if complete event was missed
-      if (isStreaming) {
-        setIsStreaming(false);
-        setMessages((prev) => {
-          const idx = prev.findIndex((m) => m.id === agentMsgId);
-          if (idx === -1) return prev;
-          const next = prev.slice();
-          next[idx] = { ...next[idx], isStreaming: false, workflowSteps: [...workflowSteps] };
-          return next;
-        });
       }
     },
-    []
+    [isStreaming, currentSessionId]
   );
 
+  const handleQuickReply = useCallback(
+    (text: string) => {
+      if (isStreaming) return;
+      handleSend(text);
+    },
+    [isStreaming, handleSend]
+  );
+
+  const handleNewChat = useCallback(() => {
+    startNewSession();
+  }, [startNewSession]);
+
   return (
-    <Box sx={{ display: 'flex', height: '100vh', bgcolor: '#FFFBF5' }}>
+    <Box sx={{ display: 'flex', height: '100vh', bgcolor: '#FAF7F2' }}>
       <CssBaseline />
       <Sidebar
         sessions={sessions}
         currentSessionId={currentSessionId}
         onSelectSession={setCurrentSessionId}
-        onNewSession={startNewSession}
+        onNewChat={handleNewChat}
         mobileOpen={mobileOpen}
-        onMobileClose={() => setMobileOpen(false)}
+        onCloseMobile={() => setMobileOpen(false)}
       />
-
       <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <AppBar position="static" elevation={0} sx={{ bgcolor: '#FFFBF5', borderBottom: '1px solid #F5E6D3', color: 'text.primary' }}>
+        <AppBar position="static" elevation={0} sx={{ bgcolor: 'background.paper', borderBottom: '1px solid #F5E6D3' }}>
           <Toolbar sx={{ minHeight: 56 }}>
-            <IconButton edge="start" sx={{ mr: 2, display: { md: 'none' }, color: 'text.primary' }} onClick={() => setMobileOpen(true)}>
+            <IconButton edge="start" onClick={() => setMobileOpen(true)} sx={{ mr: 1, display: { sm: 'none' } }}>
               <MenuIcon />
             </IconButton>
-            <Typography variant="subtitle1" sx={{ flex: 1, fontWeight: 500 }}>
-              {sessions.find((s) => s.id === currentSessionId)?.title || '智能医疗助手'}
+            <Typography variant="h6" sx={{ flex: 1, fontWeight: 700, color: '#5C4033' }}>
+              MediCareAI
             </Typography>
-            <Box sx={flexRowGap05}>
-              <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'success.main', mr: 0.5 }} />
-              <Typography variant="caption" color="text.secondary">在线</Typography>
-            </Box>
+            {guestStatus && (
+              <GuestBanner
+                status={guestStatus}
+              onRegister={() => { window.location.href = '/register'; }}
+              onLogin={() => { window.location.href = '/login'; }}
+              />
+            )}
           </Toolbar>
         </AppBar>
-
-        <GuestBanner
-          status={guestStatus}
-          onRegister={() => { /* TODO: 跳转注册页面 */ }}
-          onLogin={() => { /* TODO: 跳转登录页面 */ }}
-        />
 
         <Box
           ref={scrollRef}
           onScroll={handleScroll}
-          sx={{
-            flex: 1,
-            overflow: 'auto',
-            px: { xs: 1, sm: 2, md: 4 },
-            py: 2,
-            '&::-webkit-scrollbar': { width: 6 },
-            '&::-webkit-scrollbar-thumb': { borderRadius: 3, bgcolor: '#F5E6D3' },
-          }}
+          sx={{ flex: 1, overflowY: 'auto', p: 2, ...flexRowGap05 }}
         >
           {messages.map((msg) => (
-            <ChatMessage key={msg.id} message={msg} onInterviewAnswer={handleInterviewAnswer} />
+            <ChatMessage
+              key={msg.id}
+              message={msg}
+              onInterviewAnswer={handleInterviewAnswer}
+            />
           ))}
           <div ref={messagesEndRef} />
         </Box>
 
         {showScrollDown && (
-          <Fab size="small" color="primary" sx={{ position: 'absolute', bottom: 100, right: 24, bgcolor: 'primary.main', '&:hover': { bgcolor: 'primary.dark' } }}
-            onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })}>
+          <Fab
+            size="small"
+            onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })}
+            sx={{ position: 'absolute', bottom: 100, right: 24, bgcolor: 'background.paper', boxShadow: 2 }}
+          >
             <KeyboardArrowDownIcon />
           </Fab>
         )}
@@ -618,8 +619,8 @@ export default function ChatPage() {
           <ChatInput
             onSend={handleSend}
             disabled={isStreaming}
-            quickReplies={messages.length < 3 ? QUICK_REPLIES : undefined}
-            onQuickReply={handleSend}
+            quickReplies={messages.length <= 2 ? QUICK_REPLIES : undefined}
+            onQuickReply={handleQuickReply}
           />
         </Box>
       </Box>
