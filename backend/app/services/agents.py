@@ -12,6 +12,7 @@ All agents use the unified LLM service with Tool Use and JSON Schema output.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
