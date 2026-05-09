@@ -182,6 +182,7 @@ class InterviewState:
     # Anti-loop: stagnation detection
     stagnation_counter: int = 0      # Consecutive rounds without new info
     last_collected_count: int = 0    # Info dimension count in last round
+    fallback_count: int = 0         # Consecutive fallback uses (LLM failed)
     # User explicitly ended interview
     user_ended: bool = False
     # Interview phase tracking
@@ -205,6 +206,7 @@ class InterviewState:
             "interview_tool_calls": self.interview_tool_calls,
             "stagnation_counter": self.stagnation_counter,
             "last_collected_count": self.last_collected_count,
+            "fallback_count": self.fallback_count,
             "user_ended": self.user_ended,
             "phase": self.phase,
         }
@@ -224,6 +226,7 @@ class InterviewState:
             interview_tool_calls=data.get("interview_tool_calls", []),
             stagnation_counter=data.get("stagnation_counter", 0),
             last_collected_count=data.get("last_collected_count", 0),
+            fallback_count=data.get("fallback_count", 0),
             user_ended=data.get("user_ended", False),
             phase=data.get("phase", "interviewing"),
         )
@@ -387,32 +390,18 @@ INTERVIEW_SYSTEM_PROMPT = """你是一位经验丰富的全科医生，正在通
 }
 ```
 
-## 绝对禁止
-- ❌ "关于您的症状情况，还有什么需要补充的吗？" —— 没有任何信息量
-- ❌ "还有什么不舒服吗？" —— 太宽泛
-- ❌ 连续问两个不相关的问题 —— 每次只问一个最关键的问题
-- ❌ 使用"现病史""鉴别诊断"等医学术语面向患者提问
-- ❌ 设计没有意义的选择题选项（如"是/否/不知道"这种不提供信息的选项）
-
-## 规则
+## 关键规则
+- 必须严格返回 JSON，放在 ```json 代码块中
 - sufficient=true 时，next_question 必须为 null
 - sufficient=false 时，next_question 必须不为 null
-- type="choice" 时，options 必须至少2个，且每个选项都要有诊断价值
+- type="choice" 时，options 必须至少2个
 - type="text" 时，options 应为空数组 []
-- 问题必须口语化、自然，用"您"开头
+- 问题必须口语化，用"您"开头，像真实医生在诊室问话
 - 如果患者提到胸痛+大汗、呼吸困难、意识模糊、剧烈腹痛等，red_flags 要标记
-- suggested_tools 可在需要查病史时填写："query_patient_history"
 - 已问过的问题（见 asked_questions 列表）不要再重复问
-- 优先问现病史细节，现病史问清楚后再简短问既往史/用药史
 - 最少问2个问题后才允许 sufficient=true
-- 【无次数上限】没有固定的问题数量限制，你应当像真实医生一样，根据鉴别诊断的需要自由提问
-- 【防循环规则】不要连续问相似的问题；如果连续几轮都没有获取到新的鉴别诊断关键信息，请主动判定 sufficient=true 并结束问诊
-- 已问过的问题（见 asked_questions 列表）不要再重复问
-
-## 关键规则（必须严格遵守）
-- sufficient=true 时，next_question 必须为 null
-- sufficient=false 时，next_question 必须不为 null
-- 如果不满足 sufficient 条件，绝不要返回 sufficient=true
+- 【无次数上限】像真实医生一样自由提问
+- 【防重复】每次必须基于鉴别诊断信息缺口生成全新问题
 - reasoning 字段必须包含完整的鉴别诊断思考过程（步骤1-4）
 """
 
@@ -709,17 +698,19 @@ class DynamicInterviewEngine:
             )
 
             state.current_question_id = question.question_id
+            state.fallback_count = 0
             return question, state, decision.suggested_tools or []
 
         except Exception as exc:
             hpi_phases = [p.value for p in PHASE_ORDER[:8]]
             hpi_covered = sum(1 for p in hpi_phases if p in state.collected_info)
-            if state.stagnation_counter >= 10 or (hpi_covered >= 5 and len(state.asked_questions) >= 5):
+            if hpi_covered >= 5 and len(state.asked_questions) >= 5:
                 state.is_sufficient = True
                 state.current_question_id = None
                 return None, state, []
 
-            return self._fallback_question(state), state, []
+            fb = self._fallback_question(state)
+            return fb, state, []
 
     async def process_answer(
         self,
@@ -840,44 +831,21 @@ class DynamicInterviewEngine:
 
         return state
 
-    def _fallback_question(self, state: InterviewState) -> QuestionTemplate:
-        """Minimal fallback when LLM fails to provide a question.
+    def _fallback_question(self, state: InterviewState) -> QuestionTemplate | None:
+        state.fallback_count += 1
+        if state.fallback_count >= 2:
+            state.is_sufficient = True
+            return None
 
-        This is a LAST RESORT — the LLM in decide_next() should normally
-        generate targeted questions autonomously. We only land here if the
-        LLM returns an inconsistent result (sufficient=false but no next_question).
-
-        Strategy: scan PHASE_ORDER for the first dimension not yet collected.
-        No keyword-based branching — let the LLM drive the clinical reasoning.
-        """
-        # First unasked standard phase
-        for phase in PHASE_ORDER:
-            if phase.value not in state.asked_questions and phase.value not in state.collected_info:
-                meta = PHASE_META.get(phase, {})
-                q_text = self._generate_default_phase_question(phase)
-                return QuestionTemplate(
-                    question_id=phase.value,
-                    question=q_text,
-                    type="text",
-                    hint="可以简单描述，也可以跳过",
-                    allow_skip=True,
-                    phase=phase.value,
-                    colloquial_phase=meta.get("colloquial", "问诊"),
-                )
-
-        # True last resort — generic open-ended question
+        summary = state.get_summary()
         return QuestionTemplate(
-            question_id=f"fallback_{len(state.asked_questions)}",
-            question="还有其他您觉得医生需要知道的情况吗？",
+            question_id="fallback_wrapup",
+            question=f"我已经了解了以下情况：\n\n{summary[:200]}\n\n能否再补充一些我刚才没问到的、但您觉得重要的信息？",
             type="text",
-            hint="任何您觉得和这次不适有关的情况都可以说",
+            hint="没有的话可以直接说'没有了'",
             allow_skip=True,
             phase="complete",
-            colloquial_phase="补充",
+            colloquial_phase="总结确认",
         )
 
-    def _generate_default_phase_question(self, phase: InterviewPhase) -> str:
-        """Generate a generic open question — LLM is the primary question source."""
-        meta = PHASE_META.get(phase, {})
-        cat = meta.get("colloquial", "情况")
-        return f"关于您的{cat}，可以详细和我聊聊吗？"
+
