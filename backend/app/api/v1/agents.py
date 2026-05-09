@@ -16,7 +16,7 @@ import json
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -520,9 +520,7 @@ Use Markdown formatting for readability.""",
                             patient_history=patient_history,
                         )
                         if next_q:
-                            # Send progress summary with phase info
                             yield f"event: interview_progress\ndata: {json.dumps({'collected': state.collected_info, 'asked_count': len(state.asked_questions), 'phase': next_q.phase, 'colloquial_phase': next_q.colloquial_phase})}\n\n"
-                            # Send the question with phase metadata
                             q_payload = {
                                 "question_id": next_q.question_id,
                                 "question": next_q.question,
@@ -537,10 +535,33 @@ Use Markdown formatting for readability.""",
                             yield f"event: complete\ndata: {json.dumps({'status': 'waiting_for_answer', 'session_id': session_id})}\n\n"
                             return
                         elif state.red_flags_detected:
-                            # Red flags detected during interview
                             yield f"event: red_flags\ndata: {json.dumps({'red_flags': state.red_flags_detected, 'message': '检测到危险信号，建议立即就医'})}\n\n"
                             yield f"event: complete\ndata: {json.dumps({'status': 'red_flags', 'session_id': session_id})}\n\n"
                             return
+
+                        yield f"event: thinking\ndata: {json.dumps({'step': 'diagnosis', 'message': '🧠 问诊信息充足，正在综合分析并搜索医学知识...'})}\n\n"
+                        workflow_result = await diag_agent.run_full_diagnosis_workflow(
+                            session_id=session_id,
+                            patient_id=actual_patient_id,
+                            patient_history=patient_history,
+                        )
+                        if workflow_result.tool_calls_used:
+                            for tc in workflow_result.tool_calls_used:
+                                tname = tc.get('tool', '?')
+                                yield f"event: tool_call\ndata: {json.dumps({'tool': tname, 'params': tc.get('arguments', {}), 'message': '🔍 正在执行 ' + tname + '...'})}\n\n"
+                                await asyncio.sleep(0.2)
+                                yield f"event: tool_result\ndata: {json.dumps({'tool': tname, 'result': tc.get('result', {}), 'message': '✅ ' + tname + ' 执行完成'})}\n\n"
+                        if workflow_result.structured_output:
+                            yield f"event: structured\ndata: {json.dumps(workflow_result.structured_output.model_dump())}\n\n"
+                            report_md = _diagnosis_report_to_markdown(workflow_result.structured_output.model_dump())
+                            for chunk in _chunk_text(report_md, chunk_size=80):
+                                yield f"event: text\ndata: {json.dumps({'text': chunk})}\n\n"
+                        else:
+                            content = workflow_result.content if isinstance(workflow_result.content, str) else ''
+                            for chunk in _chunk_text(content, chunk_size=80):
+                                yield f"event: text\ndata: {json.dumps({'text': chunk})}\n\n"
+                        yield f"event: complete\ndata: {json.dumps({'message': '✅ 响应完成', 'session_id': session_id})}\n\n"
+                        return
                     except Exception:
                         # Interview failed — fall through to direct diagnosis
                         pass
@@ -614,27 +635,37 @@ Use Markdown formatting for readability.""",
     )
 
 
-@router.get("/route/stream/continue")
+@router.api_route("/route/stream/continue", methods=["GET", "POST"])
 async def route_stream_continue(
-    session_id: str,
-    question_id: str,
-    answer: str,
-    ctx: CurrentUserContext,
+    request: Request,
+    session_id: str = Query(...),
+    question_id: str = Query(...),
+    answer: str = Query(default=""),
+    ctx: CurrentUserContext = Depends(),
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
     """Continue an interrupted interview/diagnosis stream after user answers.
 
+    Supports GET (answer in query) and POST (answer in body).
+
     SSE Events (same as /route/stream):
-        question          →  Next interview question
-        interview_progress →  Collected info summary
-        thinking          →  Agent thinking step
-        tool_call         →  Tool invocation
-        tool_result       →  Tool result
-        structured        →  Structured diagnosis report
-        text              →  Streaming text chunk
-        complete          →  Stream end
-        error             →  Error
+        question           -  Next interview question
+        interview_progress -  Collected info summary
+        thinking           -  Agent thinking step
+        tool_call          -  Tool invocation
+        tool_result        -  Tool result
+        structured         -  Structured diagnosis report
+        text               -  Streaming text chunk
+        complete           -  Stream end
+        error              -  Error
     """
+    _answer = answer
+    if not _answer and request.method == "POST":
+        body = await request.json()
+        _answer = body.get("answer") or ""
+    if not _answer:
+        _answer = "无"
+
     async def event_generator():
         # Look up the session
         stmt = select(AgentSession).where(AgentSession.id == uuid.UUID(session_id))
@@ -652,7 +683,7 @@ async def route_stream_continue(
             next_q, state = await diag_agent.interview_answer(
                 session_id=session_id,
                 question_id=question_id,
-                answer=answer,
+                answer=_answer,
             )
         except Exception as e:
             yield f"event: error\ndata: {json.dumps({'error': f'Interview error: {e}'})}\n\n"

@@ -185,58 +185,77 @@ export function streamDiagnose(
 }
 
 /**
- * 续传流式对话 (SSE via GET + EventSource)
- * GET /api/v1/agents/route/stream/continue?session_id=...&question_id=...&answer=...
+ * 续传流式对话 (POST body + ReadableStream SSE)
+ * 避免 GET URL 过长导致 HTTP/2 Protocol Error
+ * POST /api/v1/agents/route/stream/continue?session_id=...&question_id=...
+ * body: {"answer": "..."}
  */
 export function streamDiagnoseContinue(
   payload: { session_id: string; question_id: string; answer: string },
   onEvent: (event: SSEEvent) => void
 ): Promise<void> {
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) => {
     const params = new URLSearchParams();
     params.set('session_id', payload.session_id);
     params.set('question_id', payload.question_id);
-    params.set('answer', payload.answer);
 
-    // EventSource 不支持自定义 headers，将 token 通过 URL query 传递
     const token = getToken();
     const guestToken = getGuestToken();
     if (guestToken) params.set('guest_token', guestToken);
     else if (token) params.set('token', token);
 
     const url = `${API_BASE}/agents/route/stream/continue?${params.toString()}`;
-    const eventSource = new EventSource(url);
 
-    // 处理命名事件
-    const namedEvents: SSEEventType[] = ['intent', 'agent_switch', 'thinking', 'tool_call', 'tool_result', 'structured', 'text', 'question', 'interview_progress', 'complete', 'error'];
-    namedEvents.forEach(eventName => {
-      eventSource.addEventListener(eventName, (e) => {
-        try {
-          const parsed = JSON.parse((e as MessageEvent).data);
-          onEvent({ event: eventName, data: parsed });
-          if (eventName === 'complete') {
-            eventSource.close();
-            resolve();
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ answer: payload.answer }),
+    }).catch(reject);
+    if (!response) return;
+
+    if (!response.ok) { reject(new Error(`HTTP ${response.status}`)); return; }
+
+    const reader = response.body?.getReader();
+    if (!reader) { reject(new Error('No response body')); return; }
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+    const eventTypes = ['intent', 'agent_switch', 'thinking', 'tool_call', 'tool_result', 'structured', 'text', 'question', 'interview_progress', 'red_flags', 'complete', 'error'];
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        while (buffer.includes('\n\n')) {
+          const idx = buffer.indexOf('\n\n');
+          const raw = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + 2);
+
+          const lines = raw.split('\n');
+          let eventName = '';
+          let dataStr = '';
+          for (const line of lines) {
+            if (line.startsWith('event: ')) eventName = line.slice(7).trim();
+            else if (line.startsWith('data: ')) dataStr = line.slice(6);
           }
-          if (eventName === 'error') {
-            eventSource.close();
-            reject(new Error(parsed.message || 'SSE error'));
+          if (!eventName || !dataStr) continue;
+
+          try {
+            const parsed = JSON.parse(dataStr);
+            onEvent({ event: eventName as SSEEvent['event'], data: parsed });
+            if (eventName === 'complete') { resolve(); return; }
+            if (eventName === 'error') { reject(new Error(parsed.message || 'SSE error')); return; }
+          } catch {
+            onEvent({ event: eventName as SSEEvent['event'], data: { raw: dataStr } });
           }
-        } catch {
-          onEvent({ event: eventName, data: { raw: (e as MessageEvent).data } });
         }
-      });
-    });
-
-    // 默认消息处理（无事件名的数据，作为安全回退）
-    eventSource.onmessage = (e) => {
-      onEvent({ event: 'text', data: { text: e.data } });
-    };
-
-    eventSource.onerror = () => {
-      eventSource.close();
-      reject(new Error('SSE connection failed'));
-    };
+      }
+    } catch (e) {
+      reject(e);
+    }
+    reader.cancel().catch(() => {});
   });
 }
 
