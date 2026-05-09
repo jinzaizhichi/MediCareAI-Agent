@@ -185,10 +185,10 @@ export function streamDiagnose(
 }
 
 /**
- * 续传流式对话 (POST body + ReadableStream SSE)
- * 避免 GET URL 过长导致 HTTP/2 Protocol Error
- * POST /api/v1/agents/route/stream/continue?session_id=...&question_id=...
- * body: {"answer": "..."}
+ * 续传流式对话 (GET + fetch + Headers + ReadableStream SSE)
+ * 避免 POST+HTTP2 协议错误，避免 URL 过长
+ * GET /api/v1/agents/route/stream/continue?session_id=...&question_id=...
+ * Headers: X-Answer (base64), Authorization / X-Guest-Token
  */
 export function streamDiagnoseContinue(
   payload: { session_id: string; question_id: string; answer: string },
@@ -199,18 +199,17 @@ export function streamDiagnoseContinue(
     params.set('session_id', payload.session_id);
     params.set('question_id', payload.question_id);
 
-    const token = getToken();
-    const guestToken = getGuestToken();
-    if (guestToken) params.set('guest_token', guestToken);
-    else if (token) params.set('token', token);
-
     const url = `${API_BASE}/agents/route/stream/continue?${params.toString()}`;
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ answer: payload.answer }),
-    }).catch(reject);
+    const headers: Record<string, string> = {
+      'X-Answer': btoa(unescape(encodeURIComponent(payload.answer))),
+    };
+    const token = getToken();
+    const guestToken = getGuestToken();
+    if (guestToken) headers['X-Guest-Token'] = guestToken;
+    else if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const response = await fetch(url, { headers }).catch(reject);
     if (!response) return;
 
     if (!response.ok) { reject(new Error(`HTTP ${response.status}`)); return; }

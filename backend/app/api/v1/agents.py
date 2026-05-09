@@ -635,7 +635,7 @@ Use Markdown formatting for readability.""",
     )
 
 
-@router.api_route("/route/stream/continue", methods=["GET", "POST"])
+@router.get("/route/stream/continue")
 async def route_stream_continue(
     request: Request,
     ctx: CurrentUserContext,
@@ -645,18 +645,17 @@ async def route_stream_continue(
 ) -> StreamingResponse:
     """Continue an interrupted interview/diagnosis stream after user answers.
 
-    Supports both GET (answer in query) and POST (answer in request body)."""
+    Gets answer from X-Answer header (base64) to avoid URL length + HTTP/2 issues."""
     _answer = ""
-    if request.method == "POST":
+    x_answer = request.headers.get("X-Answer") or request.headers.get("x-answer")
+    if x_answer:
         try:
-            body = await request.json()
-            _answer = body.get("answer") or ""
+            import base64
+            _answer = base64.b64decode(x_answer).decode("utf-8")
         except Exception:
-            _answer = ""
-    else:
-        _answer = request.query_params.get("answer") or ""
+            _answer = request.query_params.get("answer") or ""
     if not _answer:
-        _answer = "无"
+        _answer = request.query_params.get("answer") or "无"
 
     async def event_generator():
         # Look up the session
