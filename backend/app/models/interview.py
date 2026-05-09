@@ -1,15 +1,12 @@
-"""Medical Interview (multi-turn questioning) models — Differential-Diagnosis-Driven Edition.
-
-LLM-driven dynamic interview engine with differential-diagnosis-guided questioning.
-The Agent maintains an internal list of hypotheses and actively seeks information
-to confirm or rule out each hypothesis.
+"""Medical Interview — Mesh-Architecture Clinical Engine.
 
 DESIGN PRINCIPLES:
-1. The Agent THINKS like a clinician: differential diagnoses → key features → targeted questions
-2. No fixed linear phase order — the Agent decides what to ask based on clinical reasoning
-3. InterviewPhase is used only as an information category tag, not a sequence constraint
-4. Questions are colloquial; answers are natural language extracted into structured features
-5. Red flags detected at any point trigger immediate escalation
+1. Non-linear, network-structured clinical reasoning
+2. Agent simultaneously manages: questioning, knowledge search, differential diagnosis
+3. Questioning + searching are interleaved — search can trigger new questions
+4. Follows Chinese Medical History Taking (病史采集) standard as reference framework
+5. No hardcoded question scripts — LLM drives all decisions via prompt engineering
+6. Two integrated modules: 基本问诊 (Basic) → 精细化问诊 (Advanced) 
 """
 
 from __future__ import annotations
@@ -298,111 +295,131 @@ class NextQuestionSchema(BaseModel):
 
 
 class InterviewDecision(BaseModel):
-    """LLM output: differential diagnoses, next question, sufficiency."""
+    """LLM output: mesh-architecture clinical decision.
 
-    sufficient: bool = Field(..., description="是否已收集足够信息进行初步诊断")
+    At each step, the Agent chooses one of three actions:
+    - ask: generate a targeted question for the patient
+    - search: request medical knowledge search (SeARXNG + RAG)
+    - synthesize: sufficient info gathered, proceed to diagnosis
+    """
+
+    action: str = Field(default="ask", pattern="^(ask|search|synthesize)$", description="当前行动：ask | search | synthesize")
     differential_diagnoses: list[DifferentialDiagnosisEntry] = Field(
         default_factory=list,
-        description="当前鉴别诊断列表，按可能性排序。每个诊断包含关键特征和确认状态。",
+        description="当前鉴别诊断列表，按可能性排序",
     )
-    next_question: NextQuestionSchema | None = Field(default=None, description="下一个问题（sufficient=false 时必填）")
-    reasoning: str = Field(default="", description="完整的问诊决策思考过程")
+    next_question: NextQuestionSchema | None = Field(
+        default=None,
+        description="下一个问题（action=ask 时必填）",
+    )
+    search_query: str = Field(
+        default="",
+        description="医学搜索查询（action=search 时必填），使用标准医学术语",
+    )
+    search_reason: str = Field(
+        default="",
+        description="为什么要搜索这个内容（action=search 时必填）",
+    )
+    reasoning: str = Field(default="", description="完整的临床决策思考过程")
     red_flags: list[str] = Field(default_factory=list, description="检测到的危险信号")
-    suggested_tools: list[str] = Field(default_factory=list, description="建议调用的工具")
+    covered_dimensions: list[str] = Field(
+        default_factory=list,
+        description="本次已覆盖的病史采集维度（如 现病史-起病情况、现病史-主要症状）",
+    )
 
 
-# ---------------------------------------------------------------------------
-# System Prompt for Differential-Diagnosis-Driven Interview
-# ---------------------------------------------------------------------------
+INTERVIEW_SYSTEM_PROMPT = """你是一位经验丰富的中国全科医生，正在通过网络为患者进行智能问诊。
 
-INTERVIEW_SYSTEM_PROMPT = """你是一位经验丰富的全科医生，正在通过对话为患者进行智能问诊。
+## 你的核心能力：网状临床思维
 
-## 核心原则
-1. 【鉴别诊断驱动】每次提问前，必须先思考患者主诉最可能是哪几种疾病，然后设计问题来确认或排除这些疾病。
-2. 【一个问题一个目标】每个问题必须是为了获取某个鉴别诊断的关键特征，不能笼统地问"还有什么"。
-3. 【口语化表达】问题必须通俗易懂，像真实医生在诊室里问话，用"您"开头。
-4. 【优先选择题】尽量设计选择题，让患者点击回答；只有在需要具体数值或描述时才用开放性问题。
+你的工作不是一个线性的"问→答→问"循环，而是一个**网状结构的临床决策过程**：
+- 你同时进行：问诊、医学知识搜索、鉴别诊断推理
+- 问诊过程中可以随时触发搜索，搜索结果可能引导你追问新问题
+- 最终将所有线索交织，生成诊断结论
 
-## 你的思考过程（必须在 reasoning 字段中详细写出）
+## 病史采集框架（基本问诊模块）
 
-每次生成问题前，请严格按以下步骤思考并在 reasoning 中写出：
+这是中国执业医师资格考试的病史采集标准框架，作为你的参考指南：
+1. **主诉** — 患者最主要的症状/体征 + 持续时间
+2. **现病史** — 起病情况、主要症状特点（部位/性质/程度/时间）、伴随症状、病情演变、诊疗经过、一般情况
+3. **既往史** — 慢性病史、手术外伤史、传染病史、过敏史
+4. **个人史** — 烟酒习惯、职业暴露、疫区接触
+5. **婚育史/家族史** — 遗传病、类似疾病
+6. **用药史** — 当前用药、近期用药
 
-### 步骤1：主诉分析
-- 患者说了什么？
-- 提取所有症状和关键信息。
+注意：以上是完整框架，不是你每次都要问的问题清单。根据主诉灵活选择最关键的维度。
 
-### 步骤2：鉴别诊断
-- 基于现有信息，列出3-5个最可能的诊断，按可能性排序。
-- 对每个诊断，说明为什么考虑它。
+## 精细化问诊模块
 
-### 步骤3：信息缺口分析
-- 对每个鉴别诊断，哪些关键特征已经确认了？
-- 哪些关键特征还没有确认？
-- 哪个缺失特征最能帮助区分这些诊断？
+在基本问诊基础上，根据鉴别诊断进行靶向深化：
+- 对每个疑似疾病，确认其特异性关键特征
+- 排除性提问（"有没有XX？"来排除某个诊断）
+- 量化提问（"XX持续多久了？程度如何？"）
+- 关联提问（"XX和YY有关系吗？"）
 
-### 步骤4：设计问题
-- 设计一个能获取最关键缺失特征的问题。
-- 优先使用选择题（给出明确的选项）。
-- 选项要口语化，覆盖常见情况。
+## 网状决策规则
 
----
+每轮你必须选择三种 action 之一：
 
-## 思考框架（必须遵循，但不要照搬具体问题）
+1. **action="ask"** — 当你需要从患者获取更多临床信息时
+   - 基于当前鉴别诊断的信息缺口设计问题
+   - 优先选择题（给2-5个口语化选项）
+   - 问题要有诊断价值，不是泛泛的"还有什么补充"
 
-每次回答前按以下结构思考并在 reasoning 中写出：
+2. **action="search"** — 当你需要查询医学知识来辅助判断时
+   - 提供标准医学术语的搜索查询
+   - 例如："儿童功能性便秘 鉴别诊断 临床指南"
+   - 搜索结果会注入到下一轮的上下文中
 
-1. **主诉分析**: 提取核心症状
-2. **鉴别诊断**: 基于当前信息列出 3-5 个可能诊断，按可能性排序
-3. **信息缺口**: 每个诊断哪些关键特征尚未确认？哪个缺口最影响判断？
-4. **问题设计**: 针对最关键缺口设计一个口语化问题，优先选择题
-
-**重要**: 以上只是思考框架，具体的问题内容必须根据每位患者的实际主诉和已回答信息来定制，不要套用模板。
+3. **action="synthesize"** — 当信息足够进行初步诊断时
+   - 仅在已覆盖≥2个现病史维度且已问≥2个问题时允许
+   - 鉴别诊断的关键特征大部分已确认
 
 ## 输出格式
 
-请严格返回 JSON，不要有任何额外文本：
+严格返回JSON（放在```json```代码块中）：
 
+action="ask" 时：
 ```json
 {
-  "sufficient": false,
-  "differential_diagnoses": [
-    {
-      "diagnosis": "疾病名称",
-      "confidence": "high|medium|low",
-      "key_features": ["关键特征1", "关键特征2"],
-      "confirmed_features": ["已确认的特征"],
-      "missing_features": ["尚未确认的关键特征"],
-      "reason": "为什么考虑这个诊断"
-    }
-  ],
-  "next_question": {
-    "question_id": "标准医学标识符",
-    "question": "口语化问题",
-    "type": "choice 或 text",
-    "options": ["选项1", "选项2"],
-    "hint": "提示",
-    "allow_skip": true,
-    "reason": "为什么问这个问题"
-  },
-  "reasoning": "完整的思考过程（必须包含步骤1-4）",
+  "action": "ask",
+  "differential_diagnoses": [{"diagnosis":"疾病","confidence":"high|medium|low","key_features":["特征"],"confirmed_features":["已确认"],"missing_features":["未确认"],"reason":"为什么"}],
+  "next_question": {"question_id":"hpi_xxx","question":"口语化问题","type":"choice|text","options":["选项"],"hint":"提示","allow_skip":true,"reason":"为什么问"},
+  "reasoning": "完整思考过程",
   "red_flags": [],
-  "suggested_tools": []
+  "covered_dimensions": ["现病史-起病情况"]
 }
 ```
 
-## 关键规则
-- 必须严格返回 JSON，放在 ```json 代码块中
-- sufficient=true 时，next_question 必须为 null
-- sufficient=false 时，next_question 必须不为 null
-- type="choice" 时，options 必须至少2个
-- type="text" 时，options 应为空数组 []
-- 问题必须口语化，用"您"开头，像真实医生在诊室问话
-- 如果患者提到胸痛+大汗、呼吸困难、意识模糊、剧烈腹痛等，red_flags 要标记
-- 已问过的问题（见 asked_questions 列表）不要再重复问
-- 最少问2个问题后才允许 sufficient=true
-- 【无次数上限】像真实医生一样自由提问
-- 【防重复】每次必须基于鉴别诊断信息缺口生成全新问题
-- reasoning 字段必须包含完整的鉴别诊断思考过程（步骤1-4）
+action="search" 时：
+```json
+{
+  "action": "search",
+  "differential_diagnoses": [...],
+  "search_query": "标准医学搜索查询",
+  "search_reason": "为什么要搜索这个",
+  "reasoning": "完整思考过程",
+  "covered_dimensions": ["现病史-主要症状"]
+}
+```
+
+action="synthesize" 时：
+```json
+{
+  "action": "synthesize",
+  "differential_diagnoses": [...],
+  "reasoning": "为什么信息已经充足，可以进行诊断",
+  "covered_dimensions": ["现病史-起病情况","现病史-主要症状","既往史"]
+}
+```
+
+## 关键约束
+- 必须严格返回JSON，不要有任何额外文本
+- 口语化提问，用"您"开头，像真实医生在诊室
+- 胸痛+大汗/呼吸困难/意识模糊/剧烈腹痛 → red_flags标记
+- 已问过的问题ID不要重复
+- reasoning 字段必须包含完整的鉴别诊断推理
+- 无固定问题数量限制——你决定何时synthesize
 """
 
 
@@ -413,45 +430,28 @@ INTERVIEW_SYSTEM_PROMPT = """你是一位经验丰富的全科医生，正在通
 def _build_interview_prompt(
     state: InterviewState,
     patient_history: str | None = None,
+    knowledge_context: str = "",
     tool_results: list[dict[str, Any]] | None = None,
 ) -> str:
-    """Build the user prompt for LLM interview decision."""
     lines = []
 
-    # Chief complaint
     lines.append(f"## 患者主诉\n{state.chief_complaint or '未知'}")
     lines.append("")
 
-    # Current differential diagnoses (if any)
     diffs = state.get_differential_diagnoses()
     if diffs:
-        lines.append("## 当前鉴别诊断（由你之前提出）")
+        lines.append("## 当前鉴别诊断")
         for d in diffs:
             flag = "✓" if d.confidence == "high" else "?" if d.confidence == "medium" else "×"
             lines.append(f"  {flag} {d.diagnosis} ({d.confidence})")
-            if d.confirmed_features:
-                lines.append(f"    已确认: {', '.join(d.confirmed_features)}")
+            if d.supporting_evidence:
+                lines.append(f"    支持证据: {', '.join(d.supporting_evidence)}")
             if d.refuting_evidence:
-                lines.append(f"    已排除: {', '.join(d.refuting_evidence)}")
-            if d.key_features:
-                lines.append(f"    关键特征: {', '.join(d.key_features)}")
-        lines.append("")
-    else:
-        lines.append("## 鉴别诊断状态")
-        lines.append("这是问诊开始，还没有鉴别诊断列表。请在本次回答中建立鉴别诊断列表。")
+                lines.append(f"    排除证据: {', '.join(d.refuting_evidence)}")
         lines.append("")
 
-    # Confirmed features
-    features = state.get_confirmed_features()
-    if features:
-        lines.append("## 已确认的关键特征")
-        for k, v in features.items():
-            lines.append(f"  • {k}: {v}")
-        lines.append("")
-
-    # Collected info (standard phases)
     if state.collected_info:
-        lines.append("## 已收集的问诊信息")
+        lines.append("## 已收集信息")
         for phase_id in PHASE_ORDER:
             if phase_id.value in state.collected_info and not phase_id.value.startswith("__"):
                 meta = PHASE_META.get(phase_id, {})
@@ -460,68 +460,43 @@ def _build_interview_prompt(
                 raw = state.raw_answers.get(phase_id.value, "")
                 lines.append(f"  [{cat}] {phase_id.value}: {val}")
                 if raw and raw != str(val):
-                    lines.append(f"    患者原话: {raw}")
+                    lines.append(f"    原话: {raw}")
         lines.append("")
 
-    # Tool results
-    if tool_results:
+    if knowledge_context:
+        lines.append("## 医学知识搜索结果（已通过RAG+SearXNG实时获取）")
+        lines.append(knowledge_context[:800])
+        lines.append("")
+    elif tool_results:
         lines.append("## 工具查询结果")
         for tr in tool_results:
-            lines.append(f"  工具: {tr.get('tool', 'unknown')}")
-            result = tr.get('result', {})
-            if isinstance(result, dict):
-                lines.append(f"  结果: {json.dumps(result, ensure_ascii=False, indent=2)[:500]}")
-            else:
-                lines.append(f"  结果: {str(result)[:500]}")
+            r = tr.get('result', {})
+            if isinstance(r, dict):
+                lines.append(f"  {tr.get('tool','?')}: {json.dumps(r, ensure_ascii=False)[:300]}")
         lines.append("")
 
-    # Patient history
     if patient_history:
-        lines.append(f"## 患者既往病史\n{patient_history}\n")
+        lines.append(f"## 既往病史\n{patient_history}")
+        lines.append("")
 
-    # Question count + stagnation info
-    lines.append(f"已问 {len(state.asked_questions)} 个问题，最少 {state.min_questions} 个。")
-    if state.stagnation_counter > 0:
-        lines.append(f"⚠️ 连续 {state.stagnation_counter} 轮未获取新的信息维度。如果再次没有新信息，请考虑判定 sufficient=true。")
+    lines.append(f"## 统计\n已问 {len(state.asked_questions)} 个问题")
     if state.asked_questions:
-        lines.append(f"已问问题 ID: {', '.join(state.asked_questions)}")
-    lines.append("")
-
-    # Pending phases (for reference only)
+        lines.append(f"已问ID: {', '.join(state.asked_questions[-8:])}")
     pending = [p.value for p in PHASE_ORDER if p.value not in state.collected_info and not p.value.startswith("__")]
     if pending:
-        lines.append(f"尚未覆盖的信息维度（参考）: {', '.join(pending[:5])}")
-    else:
-        lines.append("已覆盖全部标准问诊维度。")
+        lines.append(f"未覆盖维度: {', '.join(pending[:6])}")
     lines.append("")
 
-    # Red flags
     if state.red_flags_detected:
-        lines.append(f"⚠️ 已检测到的危险信号: {', '.join(state.red_flags_detected)}")
-        lines.append("如果新信息中有更多危险信号，请在 red_flags 中标注。")
-    else:
-        lines.append("目前未检测到明显危险信号。")
-    lines.append("")
+        lines.append(f"⚠️ 危险信号: {', '.join(state.red_flags_detected)}")
 
-    # Decision guidance
+    lines.append("## 请决定下一步行动 (ask / search / synthesize)")
     if len(state.asked_questions) < state.min_questions:
-        lines.append("尚未达到最少问诊数量，请继续提问。")
-        lines.append("请根据主诉建立鉴别诊断列表，然后设计最有针对性的问题。")
-    else:
-        hpi_phases = [p.value for p in PHASE_ORDER[:8]]
-        hpi_covered = sum(1 for p in hpi_phases if p in state.collected_info)
-        lines.append(f"已覆盖的现病史维度: {hpi_covered}/8")
-        if hpi_covered < 3:
-            lines.append("现病史信息还不足，请继续追问具体细节。")
-        else:
-            lines.append("现病史维度已较充分。如果鉴别诊断的关键特征已大部分确认，可以判定 sufficient。")
-        lines.append("")
-        lines.append("规则：sufficient=true 仅在以下情况允许：")
-        lines.append("  - 已覆盖 ≥3 个现病史维度，且已问 ≥3 个问题；或")
-        lines.append("  - 连续多轮未获取新信息维度，鉴别诊断无法进一步精进。")
-        if state.stagnation_counter >= 3:
-            lines.append("")
-            lines.append("⚠️ 紧急提示：已连续多轮未获取新信息。请立刻判定是否信息充足，如果充足则返回 sufficient=true，不充足则提供一个能获取全新信息的问题。")
+        lines.append("尚未达到最少问诊数，请继续ask")
+    elif state.stagnation_counter >= 3:
+        lines.append(f"已连续 {state.stagnation_counter} 轮无新信息，考虑synthesize")
+    lines.append("search适用于：需要查指南/药物/论文来辅助判断时")
+    lines.append("synthesize适用于：鉴别诊断关键特征已大部分确认")
 
     return "\n".join(lines)
 
@@ -549,168 +524,79 @@ def _extract_json(text: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 class DynamicInterviewEngine:
-    """Uses LLM to drive interview based on differential diagnosis reasoning.
 
-    Unlike the old linear phase-based engine, this engine:
-    1. Maintains a list of differential hypotheses
-    2. Asks targeted questions to confirm/rule out each hypothesis
-    3. Has no fixed question sequence — the LLM decides what to ask next
-    """
-
-    def __init__(self, llm_service: Any) -> None:
+    def __init__(self, llm_service: Any, search_executor: Any = None) -> None:
         self.llm = llm_service
+        self.search = search_executor
 
     async def decide_next(
         self,
         state: InterviewState,
         patient_history: str | None = None,
+        knowledge_context: str = "",
         tool_results: list[dict[str, Any]] | None = None,
-    ) -> tuple[QuestionTemplate | None, InterviewState, list[str]]:
-        """Ask LLM to decide the next question using differential diagnosis reasoning.
-
-        Returns:
-            (next_question, updated_state, suggested_tools)
-            next_question is None if interview is complete or red flags detected.
-        """
-        prompt = _build_interview_prompt(state, patient_history, tool_results)
-
+    ) -> tuple[QuestionTemplate | None, InterviewState, str, str]:
+        prompt = _build_interview_prompt(state, patient_history, knowledge_context, tool_results)
         try:
             response = await self.llm.chat(
                 messages=[{"role": "user", "content": prompt}],
                 system_prompt=INTERVIEW_SYSTEM_PROMPT,
-                max_tokens=2000,  # Increased for longer reasoning + differential diagnoses
+                max_tokens=2000,
             )
-
             raw = _extract_json(response.content)
             decision = InterviewDecision.model_validate(raw)
 
-            # Handle red flags
             if decision.red_flags:
                 state.red_flags_detected.extend(decision.red_flags)
                 state.is_sufficient = True
-                state.current_question_id = None
-                return None, state, []
+                return None, state, "", ""
 
-            # Update differential diagnoses in state
             if decision.differential_diagnoses:
-                diffs = [
-                    DifferentialHypothesis(
-                        diagnosis=d.diagnosis,
-                        confidence=d.confidence,
-                        key_features=d.key_features,
-                        supporting_evidence=d.confirmed_features,
-                        refuting_evidence=[],
-                        reason=d.reason,
-                    )
-                    for d in decision.differential_diagnoses
-                ]
+                diffs = [DifferentialHypothesis(diagnosis=d.diagnosis, confidence=d.confidence, key_features=d.key_features, supporting_evidence=d.confirmed_features, refuting_evidence=[], reason=d.reason) for d in decision.differential_diagnoses]
                 state.set_differential_diagnoses(diffs)
 
-            # Check sufficiency — enforce minimum coverage + stagnation guard
-            meaningful_keys = [
-                k for k, v in state.collected_info.items()
-                if not k.startswith("__") and v not in ("无", "没有", "不清楚", "不记得", "跳过", "skipped", "")
-            ]
-            current_collected = len(meaningful_keys)
-            if current_collected <= state.last_collected_count:
+            meaningful = [k for k, v in state.collected_info.items() if not k.startswith("__") and v not in ("无", "没有", "不清楚", "不记得", "跳过", "skipped", "")]
+            current = len(meaningful)
+            if current <= state.last_collected_count:
                 state.stagnation_counter += 1
             else:
                 state.stagnation_counter = 0
-            state.last_collected_count = current_collected
+            state.last_collected_count = current
 
-            if state.stagnation_counter >= 10 and len(state.asked_questions) >= state.min_questions:
+            if state.stagnation_counter >= 8 and len(state.asked_questions) >= state.min_questions:
                 state.is_sufficient = True
-                state.current_question_id = None
-                return None, state, []
+                return None, state, "", ""
 
-            if decision.sufficient:
+            if decision.action == "synthesize":
                 if len(state.asked_questions) >= state.min_questions:
                     state.is_sufficient = True
-                    state.current_question_id = None
-                    return None, state, []
+                    return None, state, "", ""
+                decision.action = "ask"
 
-            if decision.next_question is None:
-                # LLM didn't provide a question but we can't end yet.
-                # Retry ONCE with a simpler, more forceful prompt before falling back.
-                hpi_phases = [p.value for p in PHASE_ORDER[:8]]
-                hpi_covered = sum(1 for p in hpi_phases if p in state.collected_info)
-                if hpi_covered >= 3 and len(state.asked_questions) >= state.min_questions:
-                    state.is_sufficient = True
-                    state.current_question_id = None
-                    return None, state, []
+            if decision.action == "search" and decision.search_query and self.search:
+                search_query = decision.search_query
+                search_reason = decision.search_reason
+                return None, state, search_query, search_reason
 
-                # --- Retry with forceful prompt ---
-                retry_prompt = _build_interview_prompt(state, patient_history, tool_results)
-                retry_prompt += "\n\n⚠️ 重要提示：上一次你返回了 sufficient=false 但没有提供 next_question。\n"
-                retry_prompt += "这是错误的。当 sufficient=false 时，必须提供一个具体的问题。\n"
-                retry_prompt += "请立刻生成下一个问题，不要返回 null。\n"
+            if decision.next_question:
+                q = decision.next_question
+                if q.question_id in state.asked_questions:
+                    q.question_id = f"{q.question_id}_{len(state.asked_questions)}"
+                question = QuestionTemplate(question_id=q.question_id, question=q.question, type=q.type, options=q.options if q.type == "choice" else [], hint=q.hint, allow_skip=q.allow_skip, phase=q.question_id, colloquial_phase="问诊")
+                state.current_question_id = question.question_id
+                state.fallback_count = 0
+                return question, state, "", ""
 
-                try:
-                    retry_response = await self.llm.chat(
-                        messages=[{"role": "user", "content": retry_prompt}],
-                        system_prompt=INTERVIEW_SYSTEM_PROMPT,
-                        max_tokens=2000,
-                    )
-                    retry_raw = _extract_json(retry_response.content)
-                    retry_decision = InterviewDecision.model_validate(retry_raw)
-
-                    if retry_decision.next_question is not None:
-                        decision = retry_decision
-                    else:
-                        return self._fallback_question(state), state, []
-                except Exception:
-                    return self._fallback_question(state), state, []
-
-            q = decision.next_question
-            # Validate: don't repeat asked questions
-            if q.question_id in state.asked_questions:
-                q.question_id = f"{q.question_id}_{len(state.asked_questions)}"
-
-            # Determine phase tag
-            phase = None
-            for p in PHASE_ORDER:
-                if p.value == q.question_id or q.question_id.startswith(p.value + "_"):
-                    phase = p
-                    break
-            if phase is None:
-                if q.question_id.startswith("hpi_"):
-                    phase = InterviewPhase.HPI_QUALITY
-                elif q.question_id.startswith("pmh_"):
-                    phase = InterviewPhase.PMH_CHRONIC
-                elif q.question_id.startswith("ps_"):
-                    phase = InterviewPhase.PS_LIFESTYLE
-                elif q.question_id.startswith("fh_"):
-                    phase = InterviewPhase.FH_GENETIC
-                elif q.question_id.startswith("med_"):
-                    phase = InterviewPhase.MED_CURRENT
-
-            meta = PHASE_META.get(phase, {}) if phase else {}
-
-            question = QuestionTemplate(
-                question_id=q.question_id,
-                question=q.question,
-                type=q.type,
-                options=q.options if q.type == "choice" else [],
-                hint=q.hint,
-                allow_skip=q.allow_skip,
-                phase=q.question_id,
-                colloquial_phase=meta.get("colloquial", "问诊"),
-            )
-
-            state.current_question_id = question.question_id
-            state.fallback_count = 0
-            return question, state, decision.suggested_tools or []
-
-        except Exception as exc:
-            hpi_phases = [p.value for p in PHASE_ORDER[:8]]
-            hpi_covered = sum(1 for p in hpi_phases if p in state.collected_info)
-            if hpi_covered >= 5 and len(state.asked_questions) >= 5:
+            state.fallback_count += 1
+            if state.fallback_count >= 2:
                 state.is_sufficient = True
-                state.current_question_id = None
-                return None, state, []
-
-            fb = self._fallback_question(state)
-            return fb, state, []
+                return None, state, "", ""
+            return None, state, "", ""
+        except Exception:
+            state.fallback_count += 1
+            if state.fallback_count >= 2 or len(state.asked_questions) >= 5:
+                state.is_sufficient = True
+            return None, state, "", ""
 
     async def process_answer(
         self,

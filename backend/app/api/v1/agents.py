@@ -29,6 +29,7 @@ from app.models.user import User, UserRole
 from app.services.agents import AgentOrchestrator, DiagnosisAgent, MonitoringAgent, PlanningAgent
 from app.services.llm import LLMService
 from app.services.rag import RAGService
+from app.tools.registry import GLOBAL_REGISTRY
 
 router = APIRouter()
 
@@ -514,11 +515,21 @@ Use Markdown formatting for readability.""",
 
                 if session_id:
                     try:
-                        next_q, state = await diag_agent.interview(
+                        next_q, state, search_q, search_r = await diag_agent.interview(
                             session_id=session_id,
                             chief_complaint=message,
                             patient_history=patient_history,
                         )
+                        if search_q and search_r:
+                            yield f"event: thinking\ndata: {json.dumps({'step': 'search', 'message': f'🔍 Agent 正在搜索: {search_r}'})}\n\n"
+                            search_result = await GLOBAL_REGISTRY.execute("search_medical_knowledge", {"query": search_q, "top_k": 5})
+                            knowledge = ""
+                            if isinstance(search_result, dict):
+                                actual = search_result.get("result", search_result)
+                                knowledge = actual.get("answer", "") if isinstance(actual, dict) else ""
+                            yield f"event: tool_call\ndata: {json.dumps({'tool': 'search_medical_knowledge', 'params': {'query': search_q}, 'message': '🔍 正在搜索医学知识库...'})}\n\n"
+                            yield f"event: tool_result\ndata: {json.dumps({'tool': 'search_medical_knowledge', 'result': {'summary': knowledge[:200]}, 'message': '✅ 搜索完成，正在根据新知识调整问诊...'})}\n\n"
+                            next_q, state, _, _ = await diag_agent.interview(session_id=session_id, patient_history=knowledge)
                         if next_q:
                             yield f"event: interview_progress\ndata: {json.dumps({'collected': state.collected_info, 'asked_count': len(state.asked_questions), 'phase': next_q.phase, 'colloquial_phase': next_q.colloquial_phase})}\n\n"
                             q_payload = {
@@ -671,7 +682,7 @@ async def route_stream_continue(
 
         # Process answer using new clinical interview engine
         try:
-            next_q, state = await diag_agent.interview_answer(
+            next_q, state, search_q, search_r = await diag_agent.interview_answer(
                 session_id=session_id,
                 question_id=question_id,
                 answer=_answer,
@@ -679,6 +690,19 @@ async def route_stream_continue(
         except Exception as e:
             yield f"event: error\ndata: {json.dumps({'error': f'Interview error: {e}'})}\n\n"
             return
+
+        if search_q and search_r:
+            yield f"event: thinking\ndata: {json.dumps({'step': 'search', 'message': f'🔍 Agent 正在搜索: {search_r}'})}\n\n"
+            search_result = await GLOBAL_REGISTRY.execute("search_medical_knowledge", {"query": search_q, "top_k": 5})
+            knowledge = ""
+            if isinstance(search_result, dict):
+                actual = search_result.get("result", search_result)
+                knowledge = actual.get("answer", "") if isinstance(actual, dict) else ""
+            yield f"event: tool_call\ndata: {json.dumps({'tool': 'search_medical_knowledge', 'params': {'query': search_q}, 'message': '🔍 正在搜索医学知识库...'})}\n\n"
+            yield f"event: tool_result\ndata: {json.dumps({'tool': 'search_medical_knowledge', 'result': {'summary': knowledge[:200]}, 'message': '✅ 搜索完成，正在重新评估问诊方向...'})}\n\n"
+            next_q, state, _, _ = await diag_agent.interview_answer(
+                session_id=session_id, question_id=question_id, answer=_answer
+            )
 
         if next_q:
             # More questions needed

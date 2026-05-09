@@ -494,7 +494,7 @@ OUTPUT (search query only):"""
                 await db.commit()
 
     # ------------------------------------------------------------------
-    # Interview / Multi-turn questioning  (Clinical Standard Edition)
+    # Mesh-Architecture Interview
     # ------------------------------------------------------------------
 
     async def interview(
@@ -503,16 +503,7 @@ OUTPUT (search query only):"""
         collected_info: dict[str, Any] | None = None,
         chief_complaint: str = "",
         patient_history: str | None = None,
-    ) -> tuple[QuestionTemplate | None, InterviewState]:
-        """Determine the next interview question using LLM-driven clinical engine.
-
-        NEW: Supports tool calls during interview (patient history lookup,
-        knowledge search), structured answer extraction, and red flag detection.
-
-        Returns:
-            (next_question, updated_state) — next_question is None if interview is complete.
-        """
-        # Load existing state from session
+    ) -> tuple[QuestionTemplate | None, InterviewState, str, str]:
         state = InterviewState()
         async with async_session_maker() as db:
             from sqlalchemy import select
@@ -524,58 +515,35 @@ OUTPUT (search query only):"""
                 if interview_data:
                     state = InterviewState.from_dict(interview_data)
 
-        # Set chief complaint on first call
         if chief_complaint and not state.chief_complaint:
             state.chief_complaint = chief_complaint
-
-        # Merge newly provided info (legacy compat)
         if collected_info:
             state.collected_info.update(collected_info)
             for key in collected_info:
                 if key not in state.asked_questions:
                     state.asked_questions.append(key)
 
-        # Check red flags — if detected, end interview immediately
-        if state.red_flags_detected:
-            state.is_sufficient = True
-            state.current_question_id = None
-            await self._update_interview_state(session_id, state)
-            return None, state
-
-        # If already sufficient or user ended, skip
-        if state.is_sufficient or state.user_ended or state.stagnation_counter >= 5:
-            if len(state.asked_questions) >= state.min_questions or state.stagnation_counter >= 5:
+        if state.red_flags_detected or state.is_sufficient or state.user_ended:
+            if state.red_flags_detected:
                 state.is_sufficient = True
-                state.current_question_id = None
-                await self._update_interview_state(session_id, state)
-                return None, state
+            await self._update_interview_state(session_id, state)
+            return None, state, "", ""
 
-        # Use LLM to decide next question
         llm = LLMService(provider=self.provider)
         engine = DynamicInterviewEngine(llm)
 
-        # Execute any pending suggested tools before asking next question
-        tool_results: list[dict[str, Any]] = []
+        tool_results = []
         if state.interview_tool_calls:
             for tc in state.interview_tool_calls:
-                result = await GLOBAL_REGISTRY.execute(
-                    tc.get("tool", ""), tc.get("params", {})
-                )
-                tool_results.append({"tool": tc.get("tool"), "result": result})
-            state.interview_tool_calls = []  # Clear after execution
+                r = await GLOBAL_REGISTRY.execute(tc.get("tool", ""), tc.get("params", {}))
+                tool_results.append({"tool": tc.get("tool"), "result": r})
+            state.interview_tool_calls = []
 
-        next_q, state, suggested_tools = await engine.decide_next(
+        next_q, state, search_query, search_reason = await engine.decide_next(
             state, patient_history=patient_history, tool_results=tool_results
         )
-
-        # Store suggested tools for next round execution
-        if suggested_tools:
-            state.interview_tool_calls = [
-                {"tool": t, "params": {}} for t in suggested_tools
-            ]
-
         await self._update_interview_state(session_id, state)
-        return next_q, state
+        return next_q, state, search_query, search_reason
 
     async def interview_answer(
         self,
@@ -583,18 +551,7 @@ OUTPUT (search query only):"""
         question_id: str,
         answer: str,
         patient_history: str | None = None,
-    ) -> tuple[QuestionTemplate | None, InterviewState]:
-        """Process a patient's answer and determine the next question.
-
-        This is the core of the conversational interview flow:
-        1. Extract structured info from natural language answer
-        2. Check for red flags
-        3. Decide next question (or end interview)
-
-        Returns:
-            (next_question, updated_state) — next_question is None if interview is complete.
-        """
-        # Load state
+    ) -> tuple[QuestionTemplate | None, InterviewState, str, str]:
         state = InterviewState()
         async with async_session_maker() as db:
             from sqlalchemy import select
@@ -606,30 +563,20 @@ OUTPUT (search query only):"""
                 if interview_data:
                     state = InterviewState.from_dict(interview_data)
 
-        # Process answer: extract structured info from natural language
         llm = LLMService(provider=self.provider)
         engine = DynamicInterviewEngine(llm)
         state = await engine.process_answer(state, question_id, answer)
 
-        # Check red flags immediately
         if state.red_flags_detected:
             state.is_sufficient = True
-            state.current_question_id = None
             await self._update_interview_state(session_id, state)
-            return None, state
+            return None, state, "", ""
 
-        # Decide next question
-        next_q, state, suggested_tools = await engine.decide_next(
+        next_q, state, search_query, search_reason = await engine.decide_next(
             state, patient_history=patient_history
         )
-
-        if suggested_tools:
-            state.interview_tool_calls = [
-                {"tool": t, "params": {}} for t in suggested_tools
-            ]
-
         await self._update_interview_state(session_id, state)
-        return next_q, state
+        return next_q, state, search_query, search_reason
 
     async def run_full_diagnosis_workflow(
         self,
