@@ -708,16 +708,13 @@ async def route_stream_continue(
         yield f"event: thinking\ndata: {json.dumps({'step': 'diagnosis', 'message': _msg_start})}\n\n"
 
         try:
-            # Emit search start event BEFORE calling workflow so frontend sees it immediately
             yield f"event: tool_call\ndata: {json.dumps({'tool': 'search_medical_knowledge', 'params': {'query': '基于问诊摘要的医学搜索'}, 'message': '🔍 正在搜索医学知识库和最新文献...'})}\n\n"
             
-            # Use the new full workflow which generates enriched symptoms from interview state
             result = await diag_agent.run_full_diagnosis_workflow(
                 session_id=session_id,
                 patient_id=str(session.user_id) if session.user_id else None,
             )
 
-            # Stream tool calls (search_medical_knowledge will be the first one now)
             if result.tool_calls_used:
                 for tc in result.tool_calls_used:
                     tool_name = tc.get("tool", "unknown")
@@ -744,9 +741,11 @@ async def route_stream_continue(
                 for chunk in _chunk_text(content, chunk_size=80):
                     yield f"event: text\ndata: {json.dumps({'text': chunk})}\n\n"
         except Exception as e:
+            import traceback, logging as _logmod
+            _log = _logmod.getLogger("agents")
+            _log.error("CONTINUE_DIAG_ERROR: %s\n%s", e, traceback.format_exc())
             _err_msg = f"诊断分析失败: {e}"
             yield f"event: error\ndata: {json.dumps({'error': _err_msg})}\n\n"
-            return
 
         yield f"event: complete\ndata: {json.dumps({'message': '✅ 响应完成'})}\n\n"
 
