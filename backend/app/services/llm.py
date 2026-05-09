@@ -175,7 +175,7 @@ class LLMService:
         return AsyncOpenAI(
             base_url=config["base_url"],
             api_key=config["api_key"],
-            timeout=60.0,
+            timeout=120.0,
             max_retries=2,
         )
 
