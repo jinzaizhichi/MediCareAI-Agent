@@ -218,7 +218,7 @@ class InterviewState:
             asked_questions=data.get("asked_questions", []),
             current_question_id=data.get("current_question_id"),
             is_sufficient=data.get("is_sufficient", False),
-            min_questions=data.get("min_questions", 3),
+            min_questions=data.get("min_questions", 2),
             current_phase_index=data.get("current_phase_index", 0),
             red_flags_detected=data.get("red_flags_detected", []),
             interview_tool_calls=data.get("interview_tool_calls", []),
@@ -344,80 +344,16 @@ INTERVIEW_SYSTEM_PROMPT = """你是一位经验丰富的全科医生，正在通
 
 ---
 
-## 示例（你必须学习这种思考方式）
+## 思考框架（必须遵循，但不要照搬具体问题）
 
-### 示例1：主诉"头疼还发烧"
+每次回答前按以下结构思考并在 reasoning 中写出：
 
-**步骤1：主诉分析**
-患者主诉头疼和发烧，两个症状同时出现。
+1. **主诉分析**: 提取核心症状
+2. **鉴别诊断**: 基于当前信息列出 3-5 个可能诊断，按可能性排序
+3. **信息缺口**: 每个诊断哪些关键特征尚未确认？哪个缺口最影响判断？
+4. **问题设计**: 针对最关键缺口设计一个口语化问题，优先选择题
 
-**步骤2：鉴别诊断**
-1. 流感/急性上呼吸道感染（最可能）— 常有全身症状
-2. 病毒性脑膜炎 — 需警惕，头痛伴发热需排除
-3. 急性鼻窦炎 — 面部压痛，脓涕
-4. 新冠病毒感染 — 流行期需考虑
-
-**步骤3：信息缺口**
-- 体温具体数值？（区分低热/高热）
-- 头痛性质？（胀痛常见于感染，剧烈头痛需警惕脑膜炎）
-- 有无呼吸道症状？（咽痛、咳嗽支持上感）
-- 有无颈部僵硬/恶心呕吐？（脑膜炎警示信号）
-
-**步骤4：问题设计**
-next_question:
-  question_id: "hpi_severity"
-  question: "您量过体温吗？最高大概多少度？"
-  type: "text"
-  hint: "比如38.5°C，这能帮助判断严重程度"
-  reason: "首先需要确认发热程度，高热(>39°C)需更警惕"
-
-→ 患者回答"38.8度"后：
-
-**步骤2更新：**
-1. 流感/急性上呼吸道感染（最可能）— 高热支持
-2. 病毒性脑膜炎 — 不能排除，需确认神经系统症状
-3. 新冠病毒感染 — 需确认流行病学史
-
-**步骤3更新：**
-- 已确认：高热38.8°C
-- 未确认：头痛性质、呼吸道症状、神经系统症状
-- 最关键缺口：是否有脑膜刺激征（因为高热+头痛是危险组合）
-
-**步骤4更新：**
-next_question:
-  question_id: "hpi_associated"
-  question: "除了头疼发烧，您还有以下哪些症状？"
-  type: "choice"
-  options: ["嗓子疼或咳嗽", "浑身肌肉酸痛", "恶心呕吐", "脖子僵硬转动疼", "以上都没有"]
-  hint: "可多选，选最符合的"
-  reason: "需要鉴别上呼吸道感染 vs 脑膜炎；恶心呕吐和颈强直是脑膜炎警示信号"
-
----
-
-### 示例2：主诉"肚子疼，拉稀三天了"
-
-**步骤2：鉴别诊断**
-1. 急性胃肠炎（最可能）
-2. 食物中毒
-3. 细菌性痢疾
-4. 肠易激综合征急性发作
-
-**步骤3：信息缺口**
-- 大便性状（水样/黏液/脓血）
-- 腹痛位置
-- 有无发热
-- 进食可疑食物史
-
-**步骤4：问题设计**
-next_question:
-  question_id: "hpi_quality"
-  question: "大便是什么样的？"
-  type: "choice"
-  options: ["稀水样", "像鼻涕一样有黏液", "带血或像果酱", "次数多但每次量少", "说不清楚"]
-  hint: "大便性状能区分感染类型"
-  reason: "黏液便或血便提示细菌感染/痢疾；水样便更支持病毒性胃肠炎"
-
----
+**重要**: 以上只是思考框架，具体的问题内容必须根据每位患者的实际主诉和已回答信息来定制，不要套用模板。
 
 ## 输出格式
 
@@ -468,7 +404,7 @@ next_question:
 - suggested_tools 可在需要查病史时填写："query_patient_history"
 - 已问过的问题（见 asked_questions 列表）不要再重复问
 - 优先问现病史细节，现病史问清楚后再简短问既往史/用药史
-- 最少问3个问题后才允许 sufficient=true
+- 最少问2个问题后才允许 sufficient=true
 - 【无次数上限】没有固定的问题数量限制，你应当像真实医生一样，根据鉴别诊断的需要自由提问
 - 【防循环规则】不要连续问相似的问题；如果连续几轮都没有获取到新的鉴别诊断关键信息，请主动判定 sufficient=true 并结束问诊
 - 已问过的问题（见 asked_questions 列表）不要再重复问
@@ -941,20 +877,7 @@ class DynamicInterviewEngine:
         )
 
     def _generate_default_phase_question(self, phase: InterviewPhase) -> str:
-        """Generate a default question for a phase when no keyword match."""
-        defaults = {
-            InterviewPhase.HPI_ONSET: "这个不舒服是什么时候开始的？突然出现还是慢慢加重的？",
-            InterviewPhase.HPI_QUALITY: "具体是什么样的感觉？比如胀痛、刺痛还是烧灼感？",
-            InterviewPhase.HPI_LOCATION: "不舒服主要在哪个部位？",
-            InterviewPhase.HPI_SEVERITY: "现在这种不舒服影响您正常活动吗？",
-            InterviewPhase.HPI_TIMING: "是一直持续还是时好时坏？",
-            InterviewPhase.HPI_AGGRAVATE: "什么情况下会加重或者缓解？",
-            InterviewPhase.HPI_ASSOCIATED: "还有其他不舒服吗？",
-            InterviewPhase.HPI_TREATMENT: "之前有没有看过医生或者吃过药？",
-            InterviewPhase.PMH_CHRONIC: "您平时身体怎么样？有没有高血压、糖尿病或者其他慢性病？",
-            InterviewPhase.PMH_ALLERGY: "有没有对药物或者食物过敏的情况？",
-            InterviewPhase.PS_LIFESTYLE: "您抽烟吗？喝酒吗？平时作息规律吗？",
-            InterviewPhase.FH_GENETIC: "家里有没有人有遗传病或者类似的疾病？",
-            InterviewPhase.MED_CURRENT: "最近有没有在吃什么药？",
-        }
-        return defaults.get(phase, f"关于您的{PHASE_META.get(phase, {}).get('colloquial', '情况')}，您还有什么需要补充的吗？")
+        """Generate a generic open question — LLM is the primary question source."""
+        meta = PHASE_META.get(phase, {})
+        cat = meta.get("colloquial", "情况")
+        return f"关于您的{cat}，可以详细和我聊聊吗？"

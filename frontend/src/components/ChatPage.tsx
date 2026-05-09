@@ -17,7 +17,6 @@ import Sidebar from './Sidebar';
 import ChatMessage from './ChatMessage';
 import ChatInput from './ChatInput';
 import GuestBanner from './GuestBanner';
-import { flexRowGap05 } from '../styles/sxUtils';
 
 
 const QUICK_REPLIES = [
@@ -615,7 +614,7 @@ export default function ChatPage() {
         <Box
           ref={scrollRef}
           onScroll={handleScroll}
-          sx={{ flex: 1, overflowY: 'auto', p: 2, ...flexRowGap05 }}
+          sx={{ flex: 1, overflowY: 'auto', p: { xs: 1, sm: 2 }, display: 'flex', flexDirection: 'column', gap: 0.5 }}
         >
           {messages.map((msg) => (
             <ChatMessage
