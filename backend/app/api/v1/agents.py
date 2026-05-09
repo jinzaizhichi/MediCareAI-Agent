@@ -638,31 +638,23 @@ Use Markdown formatting for readability.""",
 @router.api_route("/route/stream/continue", methods=["GET", "POST"])
 async def route_stream_continue(
     request: Request,
+    ctx: CurrentUserContext,
     session_id: str = Query(...),
     question_id: str = Query(...),
-    answer: str = Query(default=""),
-    ctx: CurrentUserContext = Depends(),
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
     """Continue an interrupted interview/diagnosis stream after user answers.
 
-    Supports GET (answer in query) and POST (answer in body).
-
-    SSE Events (same as /route/stream):
-        question           -  Next interview question
-        interview_progress -  Collected info summary
-        thinking           -  Agent thinking step
-        tool_call          -  Tool invocation
-        tool_result        -  Tool result
-        structured         -  Structured diagnosis report
-        text               -  Streaming text chunk
-        complete           -  Stream end
-        error              -  Error
-    """
-    _answer = answer
-    if not _answer and request.method == "POST":
-        body = await request.json()
-        _answer = body.get("answer") or ""
+    Supports both GET (answer in query) and POST (answer in request body)."""
+    _answer = ""
+    if request.method == "POST":
+        try:
+            body = await request.json()
+            _answer = body.get("answer") or ""
+        except Exception:
+            _answer = ""
+    else:
+        _answer = request.query_params.get("answer") or ""
     if not _answer:
         _answer = "无"
 
