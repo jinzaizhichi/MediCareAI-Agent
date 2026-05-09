@@ -270,7 +270,7 @@ class ExternalSearchAgent:
 
             # 1. Domain trust
             hostname = urlparse(url).hostname or ""
-            if any(d in hostname for d in self.TRUSTED_DOMAINS):
+            if any(hostname.endswith(d) or hostname == d.lstrip(".") for d in self.TRUSTED_DOMAINS):
                 score += 50
 
             # 2. Engine trust

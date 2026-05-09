@@ -174,7 +174,7 @@ class InterviewState:
     asked_questions: list[str] = field(default_factory=list)
     current_question_id: str | None = None
     is_sufficient: bool = False
-    min_questions: int = 3           # Minimum before allowing completion
+    min_questions: int = 2           # Minimum before allowing completion
     current_phase_index: int = 0     # Kept for backward compat; not used as sequence constraint
     red_flags_detected: list[str] = field(default_factory=list)
     # Tool calls made during interview
@@ -682,28 +682,27 @@ class DynamicInterviewEngine:
                 state.set_differential_diagnoses(diffs)
 
             # Check sufficiency — enforce minimum coverage + stagnation guard
-            current_collected = len([k for k in state.collected_info if not k.startswith("__")])
+            meaningful_keys = [
+                k for k, v in state.collected_info.items()
+                if not k.startswith("__") and v not in ("无", "没有", "不清楚", "不记得", "跳过", "skipped", "")
+            ]
+            current_collected = len(meaningful_keys)
             if current_collected <= state.last_collected_count:
                 state.stagnation_counter += 1
             else:
                 state.stagnation_counter = 0
             state.last_collected_count = current_collected
 
-            # Stagnation hard-stop: if >=5 rounds without new info, force stop
-            if state.stagnation_counter >= 5 and len(state.asked_questions) >= state.min_questions:
+            if state.stagnation_counter >= 10 and len(state.asked_questions) >= state.min_questions:
                 state.is_sufficient = True
                 state.current_question_id = None
                 return None, state, []
 
             if decision.sufficient:
-                hpi_phases = [p.value for p in PHASE_ORDER[:8]]
-                hpi_covered = sum(1 for p in hpi_phases if p in state.collected_info)
-                if hpi_covered >= 3 and len(state.asked_questions) >= state.min_questions:
+                if len(state.asked_questions) >= state.min_questions:
                     state.is_sufficient = True
                     state.current_question_id = None
                     return None, state, []
-                else:
-                    decision.sufficient = False
 
             if decision.next_question is None:
                 # LLM didn't provide a question but we can't end yet.
@@ -777,10 +776,9 @@ class DynamicInterviewEngine:
             return question, state, decision.suggested_tools or []
 
         except Exception as exc:
-            # LLM failed — fallback
             hpi_phases = [p.value for p in PHASE_ORDER[:8]]
             hpi_covered = sum(1 for p in hpi_phases if p in state.collected_info)
-            if state.stagnation_counter >= 5 or (hpi_covered >= 5 and len(state.asked_questions) >= 5):
+            if state.stagnation_counter >= 10 or (hpi_covered >= 5 and len(state.asked_questions) >= 5):
                 state.is_sufficient = True
                 state.current_question_id = None
                 return None, state, []

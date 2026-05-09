@@ -44,15 +44,6 @@ export default function ChatMessage({ message, onInterviewAnswer }: Props) {
           background: isAgent ? '#F5E6D3' : 'background.paper',
           border: isAgent ? 'none' : '1px solid #F5E6D3',
         }}>
-          {isAgent && message.interviewQuestion && onInterviewAnswer && (
-            <InterviewQuestion
-              key={message.interviewQuestion.question_id}
-              question={message.interviewQuestion}
-              onAnswer={onInterviewAnswer}
-              disabled={!message.isStreaming}
-            />
-          )}
-
           <Box sx={{ color: 'text.primary', wordBreak: 'break-word', lineHeight: 1.6, whiteSpace: 'pre-wrap', '& > *:first-of-type': { mt: 0 }, '& > *:last-of-type': { mb: 0 } }}>
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
@@ -128,17 +119,13 @@ export default function ChatMessage({ message, onInterviewAnswer }: Props) {
           </Box>
         </Paper>
 
-        {isAgent && message.structured && <DiagnosisCard report={message.structured} />}
-
-        {isAgent && message.toolCalls && message.toolCalls.length > 0 && (
-          <Box sx={{ mt: 1 }}>
-            {message.toolCalls.map((tc, i) => (
-              <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1, bgcolor: '#FFF8F0', border: '1px dashed #F5E6D3', borderRadius: 2, px: 1.5, py: 0.75, mb: 0.5 }}>
-                <Typography variant="caption" color="text.secondary">🔧 {tc.tool}</Typography>
-                {tc.result !== undefined && <Typography variant="caption" color="success.main">✅ 已完成</Typography>}
-              </Box>
-            ))}
-          </Box>
+        {isAgent && message.interviewQuestion && onInterviewAnswer && (
+          <InterviewQuestion
+            key={message.interviewQuestion.question_id}
+            question={message.interviewQuestion}
+            onAnswer={onInterviewAnswer}
+            disabled={!message.isStreaming}
+          />
         )}
 
         <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>

@@ -236,7 +236,7 @@ export default function ChatPage() {
                 });
                 break;
               case 'question': {
-                const q = event.data as unknown as { question_id: string; question: string; type: 'choice' | 'text'; options?: string[]; hint?: string; allow_skip?: boolean };
+                const q = event.data as unknown as { question_id: string; question: string; type: 'choice' | 'text'; options?: string[]; hint?: string; allow_skip?: boolean; colloquial_phase?: string; phase?: string };
                 // sessionId will be set when 'complete' event with status='waiting_for_answer' arrives
                 // For now, just set the questionId; sessionId is updated in the 'complete' handler
                 if (!pendingSessionRef.current) {
@@ -261,6 +261,8 @@ export default function ChatPage() {
                         options: q.options,
                         hint: q.hint,
                         allow_skip: q.allow_skip,
+                        colloquial_phase: q.colloquial_phase,
+                        phase: q.phase,
                       },
                     }];
                   }
@@ -272,6 +274,8 @@ export default function ChatPage() {
                     options: q.options,
                     hint: q.hint,
                     allow_skip: q.allow_skip,
+                    colloquial_phase: q.colloquial_phase,
+                    phase: q.phase,
                   } };
                   return next;
                 });
@@ -451,7 +455,7 @@ export default function ChatPage() {
                 });
                 break;
               case 'question': {
-                const q = event.data as unknown as { question_id: string; question: string; type: 'choice' | 'text'; options?: string[]; hint?: string; allow_skip?: boolean };
+                const q = event.data as unknown as { question_id: string; question: string; type: 'choice' | 'text'; options?: string[]; hint?: string; allow_skip?: boolean; colloquial_phase?: string; phase?: string };
                 // sessionId will be set when 'complete' event with status='waiting_for_answer' arrives
                 // For now, just set the questionId; sessionId is updated in the 'complete' handler
                 if (!pendingSessionRef.current) {
@@ -476,6 +480,8 @@ export default function ChatPage() {
                         options: q.options,
                         hint: q.hint,
                         allow_skip: q.allow_skip,
+                        colloquial_phase: q.colloquial_phase,
+                        phase: q.phase,
                       },
                     }];
                   }
@@ -487,6 +493,8 @@ export default function ChatPage() {
                     options: q.options,
                     hint: q.hint,
                     allow_skip: q.allow_skip,
+                    colloquial_phase: q.colloquial_phase,
+                    phase: q.phase,
                   } };
                   return next;
                 });

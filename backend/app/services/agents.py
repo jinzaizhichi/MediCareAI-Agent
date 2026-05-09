@@ -637,6 +637,27 @@ OUTPUT (search query only):"""
         patient_id: str | None = None,
         patient_history: str | None = None,
     ) -> AgentResult:
+        try:
+            return await self._run_full_diagnosis_workflow_impl(
+                session_id, patient_id, patient_history
+            )
+        except Exception as e:
+            logger.error(f"Full diagnosis workflow failed: {e}", exc_info=True)
+            return AgentResult(
+                content="",
+                structured_output=None,
+                agent_type="diagnosis",
+                confidence="low",
+                tool_calls_used=[],
+                session_id=session_id,
+            )
+
+    async def _run_full_diagnosis_workflow_impl(
+        self,
+        session_id: str,
+        patient_id: str | None = None,
+        patient_history: str | None = None,
+    ) -> AgentResult:
         """Run the complete workflow: interview → search knowledge → analyze → planning.
 
         CRITICAL: Always searches medical knowledge (RAG + SearXNG) BEFORE

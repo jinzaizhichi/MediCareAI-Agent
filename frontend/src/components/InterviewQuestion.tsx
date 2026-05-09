@@ -90,7 +90,7 @@ export default function InterviewQuestion({ question, onAnswer, disabled = false
           <MedicalInformationIcon sx={{ fontSize: 16, color: phaseStyle.border }} />
         </Box>
 
-        <Typography variant="subtitle2" sx={{ fontWeight: 600, color: '#3E2723', mb: 1, lineHeight: 1.5 }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 600, color: '#3E2723', mb: 1.5, lineHeight: 1.5, wordBreak: 'break-word', overflowWrap: 'break-word', fontSize: '0.95rem' }}>
           {question.question}
         </Typography>
 
