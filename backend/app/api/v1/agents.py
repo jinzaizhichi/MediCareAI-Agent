@@ -524,13 +524,14 @@ Use Markdown formatting for readability.""",
                             yield f"event: thinking\ndata: {json.dumps({'step': 'search', 'message': '🔍 后台搜索中，请先作答...'})}\n\n"
                         if questions:
                             yield f"event: interview_progress\ndata: {json.dumps({'asked_count': len(state.asked_questions), 'phase': '问诊中'})}\n\n"
+                            q_list = []
                             for nq in questions:
-                                q_payload = {
+                                q_list.append({
                                     "question_id": nq.question_id, "question": nq.question, "type": nq.type,
                                     "options": nq.options, "hint": nq.hint, "allow_skip": nq.allow_skip,
                                     "phase": nq.phase, "colloquial_phase": nq.colloquial_phase,
-                                }
-                                yield f"event: question\ndata: {json.dumps(q_payload)}\n\n"
+                                })
+                            yield f"event: question\ndata: {json.dumps({'questions': q_list})}\n\n"
                             yield f"event: complete\ndata: {json.dumps({'status': 'waiting_for_answer', 'session_id': session_id})}\n\n"
                             return
                         elif state.red_flags_detected:
@@ -691,9 +692,8 @@ async def route_stream_continue(
 
         if questions:
             yield f"event: interview_progress\ndata: {json.dumps({'asked_count': len(state.asked_questions)})}\n\n"
-            for nq in questions:
-                q_payload = {"question_id": nq.question_id, "question": nq.question, "type": nq.type, "options": nq.options, "hint": nq.hint, "allow_skip": nq.allow_skip, "phase": nq.phase, "colloquial_phase": nq.colloquial_phase}
-                yield f"event: question\ndata: {json.dumps(q_payload)}\n\n"
+            q_list = [{"question_id": nq.question_id, "question": nq.question, "type": nq.type, "options": nq.options, "hint": nq.hint, "allow_skip": nq.allow_skip, "phase": nq.phase, "colloquial_phase": nq.colloquial_phase} for nq in questions]
+            yield f"event: question\ndata: {json.dumps({'questions': q_list})}\n\n"
             yield f"event: complete\ndata: {json.dumps({'status': 'waiting_for_answer', 'session_id': session_id})}\n\n"
             return
 

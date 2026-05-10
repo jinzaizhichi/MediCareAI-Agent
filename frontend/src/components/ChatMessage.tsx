@@ -16,7 +16,7 @@ const warmText = '#5C4033';
 export default function ChatMessage({ message, onInterviewAnswer }: Props) {
   const isAgent = message.role === 'agent';
   const isSystem = message.role === 'system';
-  const isInterviewQ = !!(isAgent && message.interviewQuestion);
+  const isInterviewQ = !!(isAgent && (message.interviewQuestion || message.interviewQuestions?.length));
 
   if (isSystem) {
     return (
@@ -106,12 +106,18 @@ export default function ChatMessage({ message, onInterviewAnswer }: Props) {
         )}
 
         {isInterviewQ && onInterviewAnswer && (
-          <InterviewQuestion
-            key={message.interviewQuestion!.question_id}
-            question={message.interviewQuestion!}
-            onAnswer={onInterviewAnswer}
-            disabled={!message.isStreaming}
-          />
+        {(isAgent && (message.interviewQuestions?.length || message.interviewQuestion)) && onInterviewAnswer && (
+          <>
+            {(message.interviewQuestions || (message.interviewQuestion ? [message.interviewQuestion] : [])).map((iq) => (
+              <InterviewQuestion
+                key={iq.question_id}
+                question={iq}
+                onAnswer={onInterviewAnswer}
+                disabled={!message.isStreaming}
+              />
+            ))}
+          </>
+        )}
         )}
 
         {isAgent && message.structured && <DiagnosisCard report={message.structured} />}

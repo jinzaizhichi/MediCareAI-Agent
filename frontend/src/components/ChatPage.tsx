@@ -235,7 +235,8 @@ export default function ChatPage() {
                 });
                 break;
               case 'question': {
-                const q = event.data as unknown as { question_id: string; question: string; type: 'choice' | 'text'; options?: string[]; hint?: string; allow_skip?: boolean; colloquial_phase?: string; phase?: string };
+                const q = event.data as unknown as { question_id: string; question: string; type: string; options?: string[]; hint?: string; allow_skip?: boolean; colloquial_phase?: string; phase?: string; questions?: InterviewQuestion[] };
+                const qs: InterviewQuestion[] = 'questions' in event.data ? (event.data as { questions: InterviewQuestion[] }).questions : [q as InterviewQuestion];
                 // sessionId will be set when 'complete' event with status='waiting_for_answer' arrives
                 // For now, just set the questionId; sessionId is updated in the 'complete' handler
                 if (!pendingSessionRef.current) {
@@ -358,10 +359,10 @@ export default function ChatPage() {
 
       // Disable the previous agent message's interview question
       setMessages((prev) => {
-        const idx = prev.findLastIndex((m) => m.role === 'agent' && m.interviewQuestion?.question_id === questionId);
+        const idx = prev.findLastIndex((m) => m.role === 'agent' && (m.interviewQuestion?.question_id === questionId || m.interviewQuestions?.some(iq => iq.question_id === questionId)));
         if (idx === -1) return prev;
         const next = prev.slice();
-        next[idx] = { ...next[idx], isStreaming: false, interviewQuestion: undefined };
+        next[idx] = { ...next[idx], isStreaming: false, interviewQuestion: undefined, interviewQuestions: undefined };
         return next;
       });
 
@@ -454,7 +455,8 @@ export default function ChatPage() {
                 });
                 break;
               case 'question': {
-                const q = event.data as unknown as { question_id: string; question: string; type: 'choice' | 'text'; options?: string[]; hint?: string; allow_skip?: boolean; colloquial_phase?: string; phase?: string };
+                const q = event.data as unknown as { question_id: string; question: string; type: string; options?: string[]; hint?: string; allow_skip?: boolean; colloquial_phase?: string; phase?: string; questions?: InterviewQuestion[] };
+                const qs: InterviewQuestion[] = 'questions' in event.data ? (event.data as { questions: InterviewQuestion[] }).questions : [q as InterviewQuestion];
                 // sessionId will be set when 'complete' event with status='waiting_for_answer' arrives
                 // For now, just set the questionId; sessionId is updated in the 'complete' handler
                 if (!pendingSessionRef.current) {

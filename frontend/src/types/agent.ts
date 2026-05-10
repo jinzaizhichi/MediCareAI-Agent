@@ -80,6 +80,7 @@ export interface ChatMessageItem {
   }>;
   workflowSteps?: WorkflowStep[];
   interviewQuestion?: InterviewQuestion;
+  interviewQuestions?: InterviewQuestion[];
   timestamp: Date;
   isStreaming?: boolean;
 }
