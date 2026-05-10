@@ -479,7 +479,7 @@ class DynamicInterviewEngine:
             response = await self.llm.chat(
                 messages=[{"role": "user", "content": prompt}],
                 system_prompt=INTERVIEW_SYSTEM_PROMPT,
-                max_tokens=4000,
+                max_tokens=8000,
             )
             self.logger.info(f"[DECIDE] LLM response len={len(response.content)} preview={response.content[:100]}")
             raw = _extract_json(response.content)
