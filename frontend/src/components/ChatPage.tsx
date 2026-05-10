@@ -345,7 +345,8 @@ export default function ChatPage() {
         if (idx === -1) return prev;
         const next = prev.slice();
         const remaining = (next[idx].interviewQuestions || []).filter(iq => iq.question_id !== questionId);
-        next[idx] = { ...next[idx], isStreaming: false, interviewQuestion: undefined, interviewQuestions: remaining.length > 0 ? remaining : undefined };
+        next[idx] = { ...next[idx], interviewQuestion: undefined, interviewQuestions: remaining.length > 0 ? remaining : undefined };
+        if (remaining.length === 0) next[idx].isStreaming = false;
         return next;
       });
 
