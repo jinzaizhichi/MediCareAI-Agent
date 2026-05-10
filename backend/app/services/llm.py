@@ -224,6 +224,9 @@ class LLMService:
         choice = response.choices[0]
         usage = response.usage
         message = choice.message
+        logger.info("[LLM_CHAT] model=%s provider=%s content_len=%d finish=%s",
+                     response.model, self.provider, len(message.content or ""),
+                     choice.finish_reason)
 
         tool_calls = None
         if message.tool_calls:
