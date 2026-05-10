@@ -314,7 +314,7 @@ class DifferentialEntry(BaseModel):
 
 class InterviewDecision(BaseModel):
     action: str = Field(default="ask", pattern="^(ask|search_only|synthesize)$")
-    basic_module: list[BasicQuestion] = Field(default_factory=list, description="基本问诊问题(每轮2个)")
+    basic_module: list[BasicQuestion] = Field(default_factory=list, description="基本问诊问题(每轮1-2个)")
     advanced_module: list[BasicQuestion] = Field(default_factory=list, description="精细化问诊问题(按需0-1个)")
     differential_diagnoses: list[DifferentialEntry] = Field(default_factory=list)
     search_queries: list[str] = Field(default_factory=list, description="需要搜索的医学术语")
@@ -390,7 +390,7 @@ INTERVIEW_SYSTEM_PROMPT = """你是MediCareAI诊疗系统的路由Agent（Route 
 - 已问ID不重复
 - 无问题数上限，像真实医生
 - 信息不全也可synthesize，在needs_more_info说明缺什么
-- basic_module每轮2个，advanced_module每轮0个（总共2个，给患者从容回答的时间）
+- basic_module每轮1-2个，advanced_module每轮0个（临床信息不足时2个、足够时1个，灵活调整）
 """
 
 
