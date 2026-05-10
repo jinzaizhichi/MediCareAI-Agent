@@ -117,7 +117,6 @@ export default function ChatMessage({ message, onInterviewAnswer }: Props) {
             ))}
           </>
         )}
-        )}
 
         {isAgent && message.structured && <DiagnosisCard report={message.structured} />}
 
