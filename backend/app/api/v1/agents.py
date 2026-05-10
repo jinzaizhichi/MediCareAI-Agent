@@ -634,7 +634,7 @@ Use Markdown formatting for readability.""",
     )
 
 
-@router.get("/route/stream/continue")
+@router.api_route("/route/stream/continue", methods=["GET", "POST"])
 async def route_stream_continue(
     request: Request,
     ctx: CurrentUserContext,
@@ -652,7 +652,13 @@ async def route_stream_continue(
             import base64
             _answer = base64.b64decode(x_answer).decode("utf-8")
         except Exception:
-            _answer = request.query_params.get("answer") or ""
+            _answer = ""
+    if not _answer and request.method == "POST":
+        try:
+            body = await request.json()
+            _answer = body.get("answer") or ""
+        except Exception:
+            _answer = ""
     if not _answer:
         _answer = request.query_params.get("answer") or "无"
 

@@ -209,7 +209,11 @@ export function streamDiagnoseContinue(
     if (guestToken) headers['X-Guest-Token'] = guestToken;
     else if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    const response = await fetch(url, { headers }).catch(reject);
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ answer: payload.answer }),
+    }).catch(reject);
     if (!response) return;
 
     if (!response.ok) { reject(new Error(`HTTP ${response.status}`)); return; }
