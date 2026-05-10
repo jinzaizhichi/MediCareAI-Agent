@@ -337,7 +337,7 @@ export default function ChatPage() {
   const handleInterviewAnswer = useCallback(
     async (questionId: string, answer: string) => {
       const pending = pendingSessionRef.current;
-      if (!pending || !pending.questionId) return;
+      if (!pending?.sessionId) return;
 
       // Disable the previous agent message's interview question
       setMessages((prev) => {
