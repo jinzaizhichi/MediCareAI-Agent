@@ -106,7 +106,6 @@ export default function ChatMessage({ message, onInterviewAnswer }: Props) {
         )}
 
         {isInterviewQ && onInterviewAnswer && (
-        {(isAgent && (message.interviewQuestions?.length || message.interviewQuestion)) && onInterviewAnswer && (
           <>
             {(message.interviewQuestions || (message.interviewQuestion ? [message.interviewQuestion] : [])).map((iq) => (
               <InterviewQuestion
