@@ -199,7 +199,11 @@ RULES:
             try:
                 return json.loads(resp.content)
             except json.JSONDecodeError:
-                # Fallback
+                import re
+                content = resp.content or ""
+                match = re.search(r'"intent"\s*:\s*"(\w+)"', content)
+                if match:
+                    return {"intent": match.group(1), "confidence": "low", "reasoning": content[:200], "clarifying_question": None}
                 return {
                     "intent": "diagnosis",
                     "confidence": "low",
