@@ -390,7 +390,7 @@ INTERVIEW_SYSTEM_PROMPT = """你是MediCareAI诊疗系统的路由Agent（Route 
 - 已问ID不重复
 - 无问题数上限，像真实医生
 - 信息不全也可synthesize，在needs_more_info说明缺什么
-- basic_module每轮1-3个，advanced_module每轮0-2个
+- basic_module每轮1-2个，advanced_module每轮0-1个（总共不超过3个，给患者喘息空间）
 """
 
 
