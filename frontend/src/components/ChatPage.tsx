@@ -344,7 +344,8 @@ export default function ChatPage() {
         const idx = prev.findLastIndex((m) => m.role === 'agent' && (m.interviewQuestion?.question_id === questionId || m.interviewQuestions?.some(iq => iq.question_id === questionId)));
         if (idx === -1) return prev;
         const next = prev.slice();
-        next[idx] = { ...next[idx], isStreaming: false, interviewQuestion: undefined, interviewQuestions: undefined };
+        const remaining = (next[idx].interviewQuestions || []).filter(iq => iq.question_id !== questionId);
+        next[idx] = { ...next[idx], isStreaming: false, interviewQuestion: undefined, interviewQuestions: remaining.length > 0 ? remaining : undefined };
         return next;
       });
 
