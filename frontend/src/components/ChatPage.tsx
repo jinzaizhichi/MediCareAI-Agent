@@ -254,29 +254,11 @@ export default function ChatPage() {
                       timestamp: new Date(),
                       isStreaming: true,
                       workflowSteps: [...workflowSteps],
-                      interviewQuestion: {
-                        question_id: q.question_id,
-                        question: q.question,
-                        type: q.type,
-                        options: q.options,
-                        hint: q.hint,
-                        allow_skip: q.allow_skip,
-                        colloquial_phase: q.colloquial_phase,
-                        phase: q.phase,
-                      },
+                      interviewQuestions: qs,
                     }];
                   }
                   const next = prev.slice();
-                  next[idx] = { ...next[idx], isStreaming: true, workflowSteps: [...workflowSteps], interviewQuestion: {
-                    question_id: q.question_id,
-                    question: q.question,
-                    type: q.type,
-                    options: q.options,
-                    hint: q.hint,
-                    allow_skip: q.allow_skip,
-                    colloquial_phase: q.colloquial_phase,
-                    phase: q.phase,
-                  } };
+                  next[idx] = { ...next[idx], isStreaming: true, workflowSteps: [...workflowSteps], interviewQuestions: qs };
                   return next;
                 });
                 break;
@@ -474,29 +456,11 @@ export default function ChatPage() {
                       timestamp: new Date(),
                       isStreaming: true,
                       workflowSteps: [...workflowSteps],
-                      interviewQuestion: {
-                        question_id: q.question_id,
-                        question: q.question,
-                        type: q.type,
-                        options: q.options,
-                        hint: q.hint,
-                        allow_skip: q.allow_skip,
-                        colloquial_phase: q.colloquial_phase,
-                        phase: q.phase,
-                      },
+                      interviewQuestions: qs,
                     }];
                   }
                   const next = prev.slice();
-                  next[idx] = { ...next[idx], isStreaming: true, workflowSteps: [...workflowSteps], interviewQuestion: {
-                    question_id: q.question_id,
-                    question: q.question,
-                    type: q.type,
-                    options: q.options,
-                    hint: q.hint,
-                    allow_skip: q.allow_skip,
-                    colloquial_phase: q.colloquial_phase,
-                    phase: q.phase,
-                  } };
+                  next[idx] = { ...next[idx], isStreaming: true, workflowSteps: [...workflowSteps], interviewQuestions: qs };
                   return next;
                 });
                 break;
