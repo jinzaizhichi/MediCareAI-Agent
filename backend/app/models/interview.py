@@ -12,6 +12,7 @@ DESIGN PRINCIPLES:
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 from enum import Enum as PyEnum
@@ -294,78 +295,102 @@ class NextQuestionSchema(BaseModel):
     reason: str = Field(default="", description="为什么问这个问题（内部reasoning）")
 
 
+class BasicQuestion(BaseModel):
+    question_id: str = Field(..., description="标识符如 hpi_onset")
+    question: str = Field(..., description="口语化问题")
+    type: str = Field(default="text", pattern="^(choice|text)$")
+    options: list[str] = Field(default_factory=list)
+    hint: str = Field(default="")
+    allow_skip: bool = Field(default=True)
+    phase: str = Field(default="", description="所属病史维度")
+    reason: str = Field(default="")
+
+class DifferentialEntry(BaseModel):
+    diagnosis: str = Field(...)
+    confidence: str = Field(default="low", pattern="^(high|medium|low)$")
+    key_features: list[str] = Field(default_factory=list)
+    reason: str = Field(default="")
+
+
 class InterviewDecision(BaseModel):
-    """LLM output: mesh-architecture clinical decision.
-
-    At each step, the Agent chooses one of three actions:
-    - ask: generate a targeted question for the patient
-    - search: request medical knowledge search (SeARXNG + RAG)
-    - synthesize: sufficient info gathered, proceed to diagnosis
-    """
-
-    action: str = Field(default="ask", pattern="^(ask|search|synthesize)$", description="当前行动：ask | search | synthesize")
-    differential_diagnoses: list[DifferentialDiagnosisEntry] = Field(
-        default_factory=list,
-        description="当前鉴别诊断列表，按可能性排序",
-    )
-    next_question: NextQuestionSchema | None = Field(
-        default=None,
-        description="下一个问题（action=ask 时必填）",
-    )
-    search_query: str = Field(
-        default="",
-        description="医学搜索查询（action=search 时必填），使用标准医学术语",
-    )
-    search_reason: str = Field(
-        default="",
-        description="为什么要搜索这个内容（action=search 时必填）",
-    )
-    reasoning: str = Field(default="", description="完整的临床决策思考过程")
-    red_flags: list[str] = Field(default_factory=list, description="检测到的危险信号")
-    covered_dimensions: list[str] = Field(
-        default_factory=list,
-        description="本次已覆盖的病史采集维度（如 现病史-起病情况、现病史-主要症状）",
-    )
+    action: str = Field(default="ask", pattern="^(ask|search_only|synthesize)$")
+    basic_module: list[BasicQuestion] = Field(default_factory=list, description="基本问诊问题(1-3个)")
+    advanced_module: list[BasicQuestion] = Field(default_factory=list, description="精细化问诊问题(0-2个)")
+    differential_diagnoses: list[DifferentialEntry] = Field(default_factory=list)
+    search_queries: list[str] = Field(default_factory=list, description="需要搜索的医学术语")
+    primary_diagnosis: str = Field(default="", description="synthesize时的主要诊断")
+    differential: list[str] = Field(default_factory=list)
+    confidence: str = Field(default="medium")
+    evidence: list[str] = Field(default_factory=list)
+    needs_more_info: list[str] = Field(default_factory=list, description="缺失信息/建议检查")
+    preliminary_hypotheses: list[DifferentialEntry] = Field(default_factory=list)
+    reasoning: str = Field(default="")
+    red_flags: list[str] = Field(default_factory=list)
+    covered_dimensions: list[str] = Field(default_factory=list)
 
 
-INTERVIEW_SYSTEM_PROMPT = """你是一位经验丰富的中国全科医生，通过网络为患者问诊。
+INTERVIEW_SYSTEM_PROMPT = """你是MediCareAI路由Agent（MasterAgent），负责编排整个诊疗流程。
 
-## 网状临床思维
-你的工作非线性——同时进行问诊、知识搜索、鉴别诊断推理。问诊中可触发搜索，搜索结果引导追问，最终交织出诊断。
+## 你的工作流程（网状并行）
 
-## 病史采集框架（基本问诊）
-参考中国执业医师病史采集标准：
-1. 主诉 — 主要症状+持续时间
-2. 现病史 — 起病/症状特点(部位性质程度时间)/伴随症状/演变/诊疗经过/一般情况
-3. 既往史 — 慢性病/手术/传染病/过敏
-4. 个人史/家族史/用药史
+收到患者主诉后，你同时启动两条线：
 
-以上是参考框架，根据主诉灵活选择维度，不是每项都问。
+**线A（基本问诊）**: 按中国执业医师病史采集标准，逐层深挖
+  1.主诉 2.现病史(起病/症状特点/伴随/演变/诊疗经过/一般情况) 3.既往史 4.个人/家族/用药史
 
-## 精细化问诊
-在基本问诊上靶向深化：确认/排除鉴别诊断的关键特征、量化症状、关联提问。
+**线B（知识搜索）**: 对主诉中的症状和疑似疾病，用医学术语搜索SearXNG+RAG，获取指南/论文/药物信息来指导精细化问诊
 
-## 每轮行动 (action)
-1. action="ask" — 基于鉴别诊断信息缺口，设计口语化问题，优先选择题
-2. action="search" — 需要查指南/药物/论文时，提供标准医学术语查询
-3. action="synthesize" — 信息足够诊断(≥2问且关键特征已确认)
+两线结果整合后，你设计下一轮的问诊卡片（可多选/可文本），继续追问。循环直到能做出诊断。
 
-## JSON输出格式
-action="ask":
-{"action":"ask","differential_diagnoses":[{"diagnosis":"病名","confidence":"high|medium|low","key_features":["特征"],"confirmed_features":["已确认"],"missing_features":["未确认"],"reason":"理由"}],"next_question":{"question_id":"hpi_xxx","question":"口语化问题","type":"choice|text","options":["选项"],"hint":"提示","allow_skip":true,"reason":"为何问"},"reasoning":"推理过程","red_flags":[],"covered_dimensions":["现病史-起病"]}
+## 每轮输出JSON（action字段决定行为）
 
-action="search":
-{"action":"search","differential_diagnoses":[...],"search_query":"医学搜索查询","search_reason":"为何搜","reasoning":"推理","covered_dimensions":[...]}
+**action="ask"** — 设计问诊问题：
+```json
+{
+  "action": "ask",
+  "basic_module": [{"question_id":"hpi_xxx","question":"口语化问题","type":"choice|text","options":["选项"],"hint":"提示","allow_skip":true,"phase":"现病史-起病","reason":"为何问"}],
+  "advanced_module": [{"question_id":"adv_xxx","question":"基于搜索结果的靶向问题","type":"choice|text","options":["选项"],"hint":"提示","allow_skip":true,"reason":"搜索发现XX，需要确认YY"}],
+  "differential_diagnoses": [{"diagnosis":"疑似疾病","confidence":"high|medium|low","key_features":["特征"],"reason":"理由"}],
+  "search_queries": ["可选：需要搜索的医学术语"],
+  "reasoning": "完整的临床推理过程",
+  "red_flags": [],
+  "covered_dimensions": ["已覆盖的病史维度"]
+}
+```
 
-action="synthesize":
-{"action":"synthesize","differential_diagnoses":[...],"reasoning":"为何充足","covered_dimensions":[...]}
+**action="synthesize"** — 可以诊断了：
+```json
+{
+  "action": "synthesize",
+  "primary_diagnosis": "最可能诊断",
+  "differential": ["其他可能"],
+  "confidence": "high|medium|low",
+  "evidence": ["支持证据","包括搜索到的指南/论文"],
+  "needs_more_info": ["需要但缺失的信息——如胸片/血常规等","给患者建议去检查"],
+  "reasoning": "完整的诊断推理",
+  "covered_dimensions": ["已覆盖维度"]
+}
+```
 
-## 约束
-- 必须返回JSON(放```json中)，无额外文字
-- 口语化，用"您"开头
-- 胸痛+大汗/呼吸困难/意识模糊/剧烈腹痛→red_flags
-- 已问过的问题ID不重复
-- 无固定问题数上限——你决定何时synthesize
+**action="search_only"** — 只需搜索（首轮可选）：
+```json
+{
+  "action": "search_only",
+  "search_queries": ["医学搜索词1","医学搜索词2"],
+  "preliminary_hypotheses": [{"diagnosis":"初步怀疑","reason":"理由"}],
+  "reasoning": "为何先搜"
+}
+```
+
+## 关键规则
+- 必须返回JSON(```json```)，无其他文字
+- 问题口语化，用"您"开头
+- 优先选择题(2-5个选项)，具体数值用text
+- 胸痛大汗/呼吸困难/意识模糊/剧烈腹痛→red_flags
+- 已问ID不重复
+- 无问题数上限——像真实医生
+- 信息不全也可synthesize，在needs_more_info中说明缺什么
+- basic_module每轮1-3个问题，advanced_module每轮0-2个
 """
 
 
@@ -377,73 +402,36 @@ def _build_interview_prompt(
     state: InterviewState,
     patient_history: str | None = None,
     knowledge_context: str = "",
-    tool_results: list[dict[str, Any]] | None = None,
 ) -> str:
-    lines = []
-
-    lines.append(f"## 患者主诉\n{state.chief_complaint or '未知'}")
-    lines.append("")
-
+    lines = [f"## 患者主诉\n{state.chief_complaint or '未知'}", ""]
     diffs = state.get_differential_diagnoses()
     if diffs:
         lines.append("## 当前鉴别诊断")
         for d in diffs:
             flag = "✓" if d.confidence == "high" else "?" if d.confidence == "medium" else "×"
-            lines.append(f"  {flag} {d.diagnosis} ({d.confidence})")
-            if d.supporting_evidence:
-                lines.append(f"    支持证据: {', '.join(d.supporting_evidence)}")
-            if d.refuting_evidence:
-                lines.append(f"    排除证据: {', '.join(d.refuting_evidence)}")
+            lines.append(f"  {flag} {d.diagnosis} ({d.confidence}) - {d.reason}")
         lines.append("")
-
     if state.collected_info:
         lines.append("## 已收集信息")
-        for phase_id in PHASE_ORDER:
-            if phase_id.value in state.collected_info and not phase_id.value.startswith("__"):
-                meta = PHASE_META.get(phase_id, {})
-                cat = meta.get("cat", phase_id.value)
-                val = state.collected_info[phase_id.value]
-                raw = state.raw_answers.get(phase_id.value, "")
-                lines.append(f"  [{cat}] {phase_id.value}: {val}")
-                if raw and raw != str(val):
-                    lines.append(f"    原话: {raw}")
+        for k, v in state.collected_info.items():
+            if not k.startswith("__") and v and v not in ("无","没有","不清楚","不记得","跳过","skipped",""):
+                raw = state.raw_answers.get(k, "")
+                lines.append(f"  {k}: {v}" + (f" (原话:{raw})" if raw and raw != str(v) else ""))
         lines.append("")
-
     if knowledge_context:
-        lines.append("## 医学知识搜索结果（已通过RAG+SearXNG实时获取）")
-        lines.append(knowledge_context[:800])
+        lines.append(f"## 搜索结果\n{knowledge_context[:1000]}")
         lines.append("")
-    elif tool_results:
-        lines.append("## 工具查询结果")
-        for tr in tool_results:
-            r = tr.get('result', {})
-            if isinstance(r, dict):
-                lines.append(f"  {tr.get('tool','?')}: {json.dumps(r, ensure_ascii=False)[:300]}")
-        lines.append("")
-
     if patient_history:
-        lines.append(f"## 既往病史\n{patient_history}")
+        lines.append(f"## 既往史\n{patient_history}")
         lines.append("")
-
-    lines.append(f"## 统计\n已问 {len(state.asked_questions)} 个问题")
-    if state.asked_questions:
-        lines.append(f"已问ID: {', '.join(state.asked_questions[-8:])}")
     pending = [p.value for p in PHASE_ORDER if p.value not in state.collected_info and not p.value.startswith("__")]
+    lines.append(f"## 状态\n已问{len(state.asked_questions)}个问题")
     if pending:
         lines.append(f"未覆盖维度: {', '.join(pending[:6])}")
+    if state.asked_questions:
+        lines.append(f"已问ID: {', '.join(state.asked_questions[-8:])}")
     lines.append("")
-
-    if state.red_flags_detected:
-        lines.append(f"⚠️ 危险信号: {', '.join(state.red_flags_detected)}")
-
-    lines.append("## 请决定下一步行动 (ask / search / synthesize)")
-    if len(state.asked_questions) < state.min_questions:
-        lines.append("尚未达到最少问诊数，请继续ask")
-    elif state.stagnation_counter >= 3:
-        lines.append(f"已连续 {state.stagnation_counter} 轮无新信息，考虑synthesize")
-    lines.append("search适用于：需要查指南/药物/论文来辅助判断时")
-    lines.append("synthesize适用于：鉴别诊断关键特征已大部分确认")
-
+    lines.append("请返回action=ask(提问)/search_only(搜索)/synthesize(诊断)")
     return "\n".join(lines)
 
 
@@ -474,15 +462,18 @@ class DynamicInterviewEngine:
     def __init__(self, llm_service: Any, search_executor: Any = None) -> None:
         self.llm = llm_service
         self.search = search_executor
+        self.logger = logging.getLogger("interview.engine")
 
     async def decide_next(
         self,
         state: InterviewState,
         patient_history: str | None = None,
         knowledge_context: str = "",
-        tool_results: list[dict[str, Any]] | None = None,
-    ) -> tuple[QuestionTemplate | None, InterviewState, str, str]:
-        prompt = _build_interview_prompt(state, patient_history, knowledge_context, tool_results)
+    ) -> tuple[list[QuestionTemplate], InterviewState, list[str], str, str]:
+        """Mesh-architecture clinical decision. Returns (questions, state, search_queries, action, reasoning)."""
+        prompt = _build_interview_prompt(state, patient_history, knowledge_context)
+        self.logger.info(f"[DECIDE] asked={len(state.asked_questions)} pending_dims={len([p for p in PHASE_ORDER if p.value not in state.collected_info])}")
+
         try:
             response = await self.llm.chat(
                 messages=[{"role": "user", "content": prompt}],
@@ -491,11 +482,52 @@ class DynamicInterviewEngine:
             )
             raw = _extract_json(response.content)
             decision = InterviewDecision.model_validate(raw)
+            action = decision.action
+            self.logger.info(f"[DECIDE] action={action} basic_qs={len(decision.basic_module)} advanced_qs={len(decision.advanced_module)} searches={len(decision.search_queries)} diffs={len(decision.differential_diagnoses)}")
 
             if decision.red_flags:
                 state.red_flags_detected.extend(decision.red_flags)
                 state.is_sufficient = True
-                return None, state, "", ""
+                self.logger.warning(f"[DECIDE] RED_FLAGS: {decision.red_flags}")
+                return [], state, [], "synthesize", ""
+
+            if decision.differential_diagnoses:
+                diffs = [DifferentialHypothesis(diagnosis=d.diagnosis, confidence=d.confidence, key_features=d.key_features, reason=d.reason) for d in decision.differential_diagnoses]
+                state.set_differential_diagnoses(diffs)
+
+            meaningful = [k for k, v in state.collected_info.items() if not k.startswith("__") and v not in ("无","没有","不清楚","不记得","跳过","skipped","")]
+            current = len(meaningful)
+            state.stagnation_counter = state.stagnation_counter + 1 if current <= state.last_collected_count else 0
+            state.last_collected_count = current
+
+            if action == "synthesize":
+                state.is_sufficient = True
+                self.logger.info(f"[DECIDE] SYNTHESIZE: diagnosis={decision.primary_diagnosis}")
+                return [], state, [], "synthesize", decision.reasoning
+
+            questions: list[QuestionTemplate] = []
+            for m in decision.basic_module + decision.advanced_module:
+                qid = m.question_id
+                if qid in state.asked_questions:
+                    qid = f"{qid}_{len(state.asked_questions)}"
+                questions.append(QuestionTemplate(question_id=qid, question=m.question, type=m.type, options=m.options if m.type=="choice" else [], hint=m.hint, allow_skip=m.allow_skip, phase=m.phase, colloquial_phase=m.phase))
+                state.current_question_id = qid
+
+            search_queries = decision.search_queries or []
+            if decision.action == "search_only":
+                search_queries = search_queries or [state.chief_complaint]
+                self.logger.info(f"[DECIDE] SEARCH_ONLY: queries={search_queries}")
+
+            state.fallback_count = 0
+            return questions, state, search_queries, action, decision.reasoning
+
+        except Exception as e:
+            self.logger.error(f"[DECIDE] LLM FAILED: {e}", exc_info=True)
+            state.fallback_count += 1
+            if state.fallback_count >= 2 or len(state.asked_questions) >= 3:
+                state.is_sufficient = True
+                self.logger.warning(f"[DECIDE] FORCING SYNTHESIZE after {state.fallback_count} failures")
+            return [], state, [], "synthesize", ""
 
             if decision.differential_diagnoses:
                 diffs = [DifferentialHypothesis(diagnosis=d.diagnosis, confidence=d.confidence, key_features=d.key_features, supporting_evidence=d.confirmed_features, refuting_evidence=[], reason=d.reason) for d in decision.differential_diagnoses]

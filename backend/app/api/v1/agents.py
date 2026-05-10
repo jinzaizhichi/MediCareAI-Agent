@@ -515,34 +515,35 @@ Use Markdown formatting for readability.""",
 
                 if session_id:
                     try:
-                        next_q, state, search_q, search_r = await diag_agent.interview(
+                        questions, state, searches, action, reasoning = await diag_agent.interview(
                             session_id=session_id,
                             chief_complaint=message,
                             patient_history=patient_history,
                         )
-                        if search_q and search_r:
-                            yield f"event: thinking\ndata: {json.dumps({'step': 'search', 'message': f'🔍 Agent 正在搜索: {search_r}'})}\n\n"
-                            search_result = await GLOBAL_REGISTRY.execute("search_medical_knowledge", {"query": search_q, "top_k": 5})
+                        if searches:
+                            yield f"event: thinking\ndata: {json.dumps({'step': 'search', 'message': f'🔍 路由Agent正在搜索: {searches[0][:60]}...'})}\n\n"
                             knowledge = ""
-                            if isinstance(search_result, dict):
-                                actual = search_result.get("result", search_result)
-                                knowledge = actual.get("answer", "") if isinstance(actual, dict) else ""
-                            yield f"event: tool_call\ndata: {json.dumps({'tool': 'search_medical_knowledge', 'params': {'query': search_q}, 'message': '🔍 正在搜索医学知识库...'})}\n\n"
-                            yield f"event: tool_result\ndata: {json.dumps({'tool': 'search_medical_knowledge', 'result': {'summary': knowledge[:200]}, 'message': '✅ 搜索完成，正在根据新知识调整问诊...'})}\n\n"
-                            next_q, state, _, _ = await diag_agent.interview(session_id=session_id, patient_history=knowledge)
-                        if next_q:
-                            yield f"event: interview_progress\ndata: {json.dumps({'collected': state.collected_info, 'asked_count': len(state.asked_questions), 'phase': next_q.phase, 'colloquial_phase': next_q.colloquial_phase})}\n\n"
-                            q_payload = {
-                                "question_id": next_q.question_id,
-                                "question": next_q.question,
-                                "type": next_q.type,
-                                "options": next_q.options,
-                                "hint": next_q.hint,
-                                "allow_skip": next_q.allow_skip,
-                                "phase": next_q.phase,
-                                "colloquial_phase": next_q.colloquial_phase,
-                            }
-                            yield f"event: question\ndata: {json.dumps(q_payload)}\n\n"
+                            for sq in searches[:3]:
+                                try:
+                                    sr = await asyncio.wait_for(GLOBAL_REGISTRY.execute("search_medical_knowledge", {"query": sq, "top_k": 3}), timeout=45.0)
+                                    if isinstance(sr, dict):
+                                        a = sr.get("result", sr)
+                                        knowledge += (a.get("answer","") if isinstance(a, dict) else str(a)[:300]) + "\n"
+                                except Exception:
+                                    pass
+                            if knowledge:
+                                yield f"event: tool_call\ndata: {json.dumps({'tool': 'search_medical_knowledge', 'params': {'queries': searches}, 'message': '🔍 搜索完成，整合知识...'})}\n\n"
+                                yield f"event: tool_result\ndata: {json.dumps({'tool': 'search_medical_knowledge', 'result': {'summary': knowledge[:200]}, 'message': '✅ 知识整合完成'})}\n\n"
+                            questions, state, _, _, _ = await diag_agent.interview(session_id=session_id, patient_history=knowledge)
+                        if questions:
+                            yield f"event: interview_progress\ndata: {json.dumps({'asked_count': len(state.asked_questions), 'phase': '问诊中'})}\n\n"
+                            for nq in questions:
+                                q_payload = {
+                                    "question_id": nq.question_id, "question": nq.question, "type": nq.type,
+                                    "options": nq.options, "hint": nq.hint, "allow_skip": nq.allow_skip,
+                                    "phase": nq.phase, "colloquial_phase": nq.colloquial_phase,
+                                }
+                                yield f"event: question\ndata: {json.dumps(q_payload)}\n\n"
                             yield f"event: complete\ndata: {json.dumps({'status': 'waiting_for_answer', 'session_id': session_id})}\n\n"
                             return
                         elif state.red_flags_detected:
@@ -682,7 +683,7 @@ async def route_stream_continue(
 
         # Process answer using new clinical interview engine
         try:
-            next_q, state, search_q, search_r = await diag_agent.interview_answer(
+            questions, state, searches, action, reasoning = await diag_agent.interview_answer(
                 session_id=session_id,
                 question_id=question_id,
                 answer=_answer,
@@ -691,33 +692,29 @@ async def route_stream_continue(
             yield f"event: error\ndata: {json.dumps({'error': f'Interview error: {e}'})}\n\n"
             return
 
-        if search_q and search_r:
-            yield f"event: thinking\ndata: {json.dumps({'step': 'search', 'message': f'🔍 Agent 正在搜索: {search_r}'})}\n\n"
-            search_result = await GLOBAL_REGISTRY.execute("search_medical_knowledge", {"query": search_q, "top_k": 5})
+        if searches:
+            yield f"event: thinking\ndata: {json.dumps({'step': 'search', 'message': f'🔍 路由Agent搜索: {searches[0][:60]}'})}\n\n"
             knowledge = ""
-            if isinstance(search_result, dict):
-                actual = search_result.get("result", search_result)
-                knowledge = actual.get("answer", "") if isinstance(actual, dict) else ""
-            yield f"event: tool_call\ndata: {json.dumps({'tool': 'search_medical_knowledge', 'params': {'query': search_q}, 'message': '🔍 正在搜索医学知识库...'})}\n\n"
-            yield f"event: tool_result\ndata: {json.dumps({'tool': 'search_medical_knowledge', 'result': {'summary': knowledge[:200]}, 'message': '✅ 搜索完成，正在重新评估问诊方向...'})}\n\n"
-            next_q, state, _, _ = await diag_agent.interview_answer(
+            for sq in searches[:3]:
+                try:
+                    sr = await asyncio.wait_for(GLOBAL_REGISTRY.execute("search_medical_knowledge", {"query": sq, "top_k": 3}), timeout=45.0)
+                    if isinstance(sr, dict):
+                        a = sr.get("result", sr)
+                        knowledge += (a.get("answer","") if isinstance(a, dict) else str(a)[:300]) + "\n"
+                except Exception:
+                    pass
+            if knowledge:
+                yield f"event: tool_call\ndata: {json.dumps({'tool': 'search_medical_knowledge', 'params': {'queries': searches}, 'message': '🔍 搜索完成'})}\n\n"
+                yield f"event: tool_result\ndata: {json.dumps({'tool': 'search_medical_knowledge', 'result': {'summary': knowledge[:200]}, 'message': '✅ 已整合'})}\n\n"
+            questions, state, _, _, _ = await diag_agent.interview_answer(
                 session_id=session_id, question_id=question_id, answer=_answer
             )
 
-        if next_q:
-            # More questions needed
-            yield f"event: interview_progress\ndata: {json.dumps({'collected': state.collected_info, 'asked_count': len(state.asked_questions), 'phase': next_q.phase, 'colloquial_phase': next_q.colloquial_phase})}\n\n"
-            q_payload = {
-                "question_id": next_q.question_id,
-                "question": next_q.question,
-                "type": next_q.type,
-                "options": next_q.options,
-                "hint": next_q.hint,
-                "allow_skip": next_q.allow_skip,
-                "phase": next_q.phase,
-                "colloquial_phase": next_q.colloquial_phase,
-            }
-            yield f"event: question\ndata: {json.dumps(q_payload)}\n\n"
+        if questions:
+            yield f"event: interview_progress\ndata: {json.dumps({'asked_count': len(state.asked_questions)})}\n\n"
+            for nq in questions:
+                q_payload = {"question_id": nq.question_id, "question": nq.question, "type": nq.type, "options": nq.options, "hint": nq.hint, "allow_skip": nq.allow_skip, "phase": nq.phase, "colloquial_phase": nq.colloquial_phase}
+                yield f"event: question\ndata: {json.dumps(q_payload)}\n\n"
             yield f"event: complete\ndata: {json.dumps({'status': 'waiting_for_answer', 'session_id': session_id})}\n\n"
             return
 

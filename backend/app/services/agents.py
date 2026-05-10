@@ -503,7 +503,7 @@ OUTPUT (search query only):"""
         collected_info: dict[str, Any] | None = None,
         chief_complaint: str = "",
         patient_history: str | None = None,
-    ) -> tuple[QuestionTemplate | None, InterviewState, str, str]:
+    ) -> tuple[list[QuestionTemplate], InterviewState, list[str], str, str]:
         state = InterviewState()
         async with async_session_maker() as db:
             from sqlalchemy import select
@@ -511,10 +511,9 @@ OUTPUT (search query only):"""
             result = await db.execute(stmt)
             session = result.scalar_one_or_none()
             if session and session.context:
-                interview_data = session.context.get("interview")
-                if interview_data:
-                    state = InterviewState.from_dict(interview_data)
-
+                d = session.context.get("interview")
+                if d:
+                    state = InterviewState.from_dict(d)
         if chief_complaint and not state.chief_complaint:
             state.chief_complaint = chief_complaint
         if collected_info:
@@ -522,28 +521,18 @@ OUTPUT (search query only):"""
             for key in collected_info:
                 if key not in state.asked_questions:
                     state.asked_questions.append(key)
-
         if state.red_flags_detected or state.is_sufficient or state.user_ended:
             if state.red_flags_detected:
                 state.is_sufficient = True
             await self._update_interview_state(session_id, state)
-            return None, state, "", ""
-
+            return [], state, [], "synthesize", ""
         llm = LLMService(provider=self.provider)
         engine = DynamicInterviewEngine(llm)
-
-        tool_results = []
-        if state.interview_tool_calls:
-            for tc in state.interview_tool_calls:
-                r = await GLOBAL_REGISTRY.execute(tc.get("tool", ""), tc.get("params", {}))
-                tool_results.append({"tool": tc.get("tool"), "result": r})
-            state.interview_tool_calls = []
-
-        next_q, state, search_query, search_reason = await engine.decide_next(
-            state, patient_history=patient_history, tool_results=tool_results
+        questions, state, searches, action, reasoning = await engine.decide_next(
+            state, patient_history=patient_history
         )
         await self._update_interview_state(session_id, state)
-        return next_q, state, search_query, search_reason
+        return questions, state, searches, action, reasoning
 
     async def interview_answer(
         self,
@@ -551,7 +540,7 @@ OUTPUT (search query only):"""
         question_id: str,
         answer: str,
         patient_history: str | None = None,
-    ) -> tuple[QuestionTemplate | None, InterviewState, str, str]:
+    ) -> tuple[list[QuestionTemplate], InterviewState, list[str], str, str]:
         state = InterviewState()
         async with async_session_maker() as db:
             from sqlalchemy import select
@@ -559,24 +548,21 @@ OUTPUT (search query only):"""
             result = await db.execute(stmt)
             session = result.scalar_one_or_none()
             if session and session.context:
-                interview_data = session.context.get("interview")
-                if interview_data:
-                    state = InterviewState.from_dict(interview_data)
-
+                d = session.context.get("interview")
+                if d:
+                    state = InterviewState.from_dict(d)
         llm = LLMService(provider=self.provider)
         engine = DynamicInterviewEngine(llm)
         state = await engine.process_answer(state, question_id, answer)
-
         if state.red_flags_detected:
             state.is_sufficient = True
             await self._update_interview_state(session_id, state)
-            return None, state, "", ""
-
-        next_q, state, search_query, search_reason = await engine.decide_next(
+            return [], state, [], "synthesize", ""
+        questions, state, searches, action, reasoning = await engine.decide_next(
             state, patient_history=patient_history
         )
         await self._update_interview_state(session_id, state)
-        return next_q, state, search_query, search_reason
+        return questions, state, searches, action, reasoning
 
     async def run_full_diagnosis_workflow(
         self,
