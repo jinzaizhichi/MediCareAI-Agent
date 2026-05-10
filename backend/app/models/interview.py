@@ -172,7 +172,7 @@ class InterviewState:
     asked_questions: list[str] = field(default_factory=list)
     current_question_id: str | None = None
     is_sufficient: bool = False
-    min_questions: int = 2           # Minimum before allowing completion
+    min_questions: int = 4           # Minimum before allowing completion
     current_phase_index: int = 0     # Kept for backward compat; not used as sequence constraint
     red_flags_detected: list[str] = field(default_factory=list)
     # Tool calls made during interview
@@ -218,7 +218,7 @@ class InterviewState:
             asked_questions=data.get("asked_questions", []),
             current_question_id=data.get("current_question_id"),
             is_sufficient=data.get("is_sufficient", False),
-            min_questions=data.get("min_questions", 2),
+            min_questions=data.get("min_questions", 4),
             current_phase_index=data.get("current_phase_index", 0),
             red_flags_detected=data.get("red_flags_detected", []),
             interview_tool_calls=data.get("interview_tool_calls", []),
@@ -641,7 +641,7 @@ class DynamicInterviewEngine:
             response = await self.llm.chat(
                 messages=[{"role": "user", "content": extract_prompt}],
                 system_prompt="你是医学信息提取助手。从患者回答中提取关键信息。只返回JSON。",
-                max_tokens=512,
+                max_tokens=1024,
             )
             raw = _extract_json(response.content)
             extracted = raw.get("extracted", answer)
