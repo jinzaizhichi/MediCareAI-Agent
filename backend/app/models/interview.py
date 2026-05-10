@@ -412,11 +412,12 @@ def _build_interview_prompt(
             lines.append(f"  {flag} {d.diagnosis} ({d.confidence}) - {d.reason}")
         lines.append("")
     if state.collected_info:
-        lines.append("## 已收集信息")
-        for k, v in state.collected_info.items():
+        lines.append("## 已收集信息(最近)")
+        recent = list(state.collected_info.items())
+        for k, v in recent[-12:]:
             if not k.startswith("__") and v and v not in ("无","没有","不清楚","不记得","跳过","skipped",""):
                 raw = state.raw_answers.get(k, "")
-                lines.append(f"  {k}: {v}" + (f" (原话:{raw})" if raw and raw != str(v) else ""))
+                lines.append(f"  {k}: {v}" + (f" ({raw})" if raw and raw != str(v) else ""))
         lines.append("")
     if knowledge_context:
         lines.append(f"## 搜索结果\n{knowledge_context[:1000]}")
@@ -639,8 +640,8 @@ class DynamicInterviewEngine:
         try:
             response = await self.llm.chat(
                 messages=[{"role": "user", "content": extract_prompt}],
-                system_prompt="你是医学信息提取和鉴别诊断更新助手。从患者回答中提取信息并更新鉴别诊断列表。只返回JSON。",
-                max_tokens=1024,
+                system_prompt="你是医学信息提取助手。从患者回答中提取关键信息。只返回JSON。",
+                max_tokens=512,
             )
             raw = _extract_json(response.content)
             extracted = raw.get("extracted", answer)
