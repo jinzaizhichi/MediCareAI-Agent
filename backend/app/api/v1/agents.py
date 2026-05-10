@@ -521,22 +521,7 @@ Use Markdown formatting for readability.""",
                             patient_history=patient_history,
                         )
                         if searches:
-                            yield f"event: thinking\ndata: {json.dumps({'step': 'search', 'message': f'🔍 路由Agent搜索中...'})}\n\n"
-                            knowledge = ""
-                            for sq in searches[:3]:
-                                try:
-                                    sr = await asyncio.wait_for(GLOBAL_REGISTRY.execute("search_medical_knowledge", {"query": sq, "top_k": 3}), timeout=30.0)
-                                    if isinstance(sr, dict):
-                                        a = sr.get("result", sr)
-                                        knowledge += (a.get("answer","") if isinstance(a, dict) else str(a)[:200]) + "\n"
-                                except Exception:
-                                    pass
-                            yield f"event: tool_result\ndata: {json.dumps({'tool': 'search_medical_knowledge', 'message': '✅ 搜索完成'})}\n\n"
-                            if knowledge:
-                                try:
-                                    questions, state, _, _, _ = await diag_agent.interview(session_id=session_id, patient_history=knowledge)
-                                except Exception:
-                                    pass
+                            yield f"event: thinking\ndata: {json.dumps({'step': 'search', 'message': '🔍 后台搜索中，请先作答...'})}\n\n"
                         if questions:
                             yield f"event: interview_progress\ndata: {json.dumps({'asked_count': len(state.asked_questions), 'phase': '问诊中'})}\n\n"
                             for nq in questions:
@@ -695,22 +680,7 @@ async def route_stream_continue(
             return
 
         if searches:
-            yield f"event: thinking\ndata: {json.dumps({'step': 'search', 'message': '🔍 搜索中...'})}\n\n"
-            knowledge = ""
-            for sq in searches[:3]:
-                try:
-                    sr = await asyncio.wait_for(GLOBAL_REGISTRY.execute("search_medical_knowledge", {"query": sq, "top_k": 3}), timeout=30.0)
-                    if isinstance(sr, dict):
-                        a = sr.get("result", sr)
-                        knowledge += (a.get("answer","") if isinstance(a, dict) else str(a)[:200]) + "\n"
-                except Exception:
-                    pass
-            yield f"event: tool_result\ndata: {json.dumps({'tool': 'search_medical_knowledge', 'message': '✅ 搜索完成'})}\n\n"
-            if knowledge:
-                try:
-                    questions, state, _, _, _ = await diag_agent.interview_answer(session_id=session_id, question_id=question_id, answer=_answer)
-                except Exception:
-                    pass
+            yield f"event: thinking\ndata: {json.dumps({'step': 'search', 'message': '🔍 后台搜索中...'})}\n\n"
 
         if questions:
             yield f"event: interview_progress\ndata: {json.dumps({'asked_count': len(state.asked_questions)})}\n\n"
