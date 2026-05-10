@@ -521,20 +521,22 @@ Use Markdown formatting for readability.""",
                             patient_history=patient_history,
                         )
                         if searches:
-                            yield f"event: thinking\ndata: {json.dumps({'step': 'search', 'message': f'🔍 路由Agent正在搜索: {searches[0][:60]}...'})}\n\n"
+                            yield f"event: thinking\ndata: {json.dumps({'step': 'search', 'message': f'🔍 路由Agent搜索中...'})}\n\n"
                             knowledge = ""
                             for sq in searches[:3]:
                                 try:
-                                    sr = await asyncio.wait_for(GLOBAL_REGISTRY.execute("search_medical_knowledge", {"query": sq, "top_k": 3}), timeout=45.0)
+                                    sr = await asyncio.wait_for(GLOBAL_REGISTRY.execute("search_medical_knowledge", {"query": sq, "top_k": 3}), timeout=30.0)
                                     if isinstance(sr, dict):
                                         a = sr.get("result", sr)
-                                        knowledge += (a.get("answer","") if isinstance(a, dict) else str(a)[:300]) + "\n"
+                                        knowledge += (a.get("answer","") if isinstance(a, dict) else str(a)[:200]) + "\n"
                                 except Exception:
                                     pass
+                            yield f"event: tool_result\ndata: {json.dumps({'tool': 'search_medical_knowledge', 'message': '✅ 搜索完成'})}\n\n"
                             if knowledge:
-                                yield f"event: tool_call\ndata: {json.dumps({'tool': 'search_medical_knowledge', 'params': {'queries': searches}, 'message': '🔍 搜索完成，整合知识...'})}\n\n"
-                                yield f"event: tool_result\ndata: {json.dumps({'tool': 'search_medical_knowledge', 'result': {'summary': knowledge[:200]}, 'message': '✅ 知识整合完成'})}\n\n"
-                            questions, state, _, _, _ = await diag_agent.interview(session_id=session_id, patient_history=knowledge)
+                                try:
+                                    questions, state, _, _, _ = await diag_agent.interview(session_id=session_id, patient_history=knowledge)
+                                except Exception:
+                                    pass
                         if questions:
                             yield f"event: interview_progress\ndata: {json.dumps({'asked_count': len(state.asked_questions), 'phase': '问诊中'})}\n\n"
                             for nq in questions:
@@ -693,22 +695,22 @@ async def route_stream_continue(
             return
 
         if searches:
-            yield f"event: thinking\ndata: {json.dumps({'step': 'search', 'message': f'🔍 路由Agent搜索: {searches[0][:60]}'})}\n\n"
+            yield f"event: thinking\ndata: {json.dumps({'step': 'search', 'message': '🔍 搜索中...'})}\n\n"
             knowledge = ""
             for sq in searches[:3]:
                 try:
-                    sr = await asyncio.wait_for(GLOBAL_REGISTRY.execute("search_medical_knowledge", {"query": sq, "top_k": 3}), timeout=45.0)
+                    sr = await asyncio.wait_for(GLOBAL_REGISTRY.execute("search_medical_knowledge", {"query": sq, "top_k": 3}), timeout=30.0)
                     if isinstance(sr, dict):
                         a = sr.get("result", sr)
-                        knowledge += (a.get("answer","") if isinstance(a, dict) else str(a)[:300]) + "\n"
+                        knowledge += (a.get("answer","") if isinstance(a, dict) else str(a)[:200]) + "\n"
                 except Exception:
                     pass
+            yield f"event: tool_result\ndata: {json.dumps({'tool': 'search_medical_knowledge', 'message': '✅ 搜索完成'})}\n\n"
             if knowledge:
-                yield f"event: tool_call\ndata: {json.dumps({'tool': 'search_medical_knowledge', 'params': {'queries': searches}, 'message': '🔍 搜索完成'})}\n\n"
-                yield f"event: tool_result\ndata: {json.dumps({'tool': 'search_medical_knowledge', 'result': {'summary': knowledge[:200]}, 'message': '✅ 已整合'})}\n\n"
-            questions, state, _, _, _ = await diag_agent.interview_answer(
-                session_id=session_id, question_id=question_id, answer=_answer
-            )
+                try:
+                    questions, state, _, _, _ = await diag_agent.interview_answer(session_id=session_id, question_id=question_id, answer=_answer)
+                except Exception:
+                    pass
 
         if questions:
             yield f"event: interview_progress\ndata: {json.dumps({'asked_count': len(state.asked_questions)})}\n\n"
