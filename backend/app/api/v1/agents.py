@@ -668,7 +668,8 @@ async def route_stream_continue(
 
         diag_agent = DiagnosisAgent(provider=None)
 
-        # Process answer using new clinical interview engine
+        yield f"event: thinking\ndata: {json.dumps({'step': 'processing', 'message': '🧠 正在分析您的回答...'})}\n\n"
+
         try:
             questions, state, searches, action, reasoning = await diag_agent.interview_answer(
                 session_id=session_id,
