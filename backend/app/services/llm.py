@@ -13,7 +13,10 @@ No hardcoded API keys or provider defaults.
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import AsyncIterator
+
+logger = logging.getLogger(__name__)
 from dataclasses import dataclass
 from typing import Any
 
