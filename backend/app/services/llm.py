@@ -217,12 +217,17 @@ class LLMService:
         if system_prompt:
             msgs.insert(0, {"role": "system", "content": system_prompt})
 
+        _model = model or default_model
+        logger.info("[LLM_PRE] provider=%s model=%s msgs=%d max_tokens=%d",
+                     self.provider, _model, len(msgs), max_tokens or 0)
         response = await client.chat.completions.create(
-            model=model or default_model,
-            messages=msgs,  # type: ignore[arg-type]
+            model=_model,
+            messages=msgs,
             max_tokens=max_tokens,
             stream=False,
         )
+        logger.info("[LLM_POST] got response, choices=%d",
+                     len(response.choices) if response.choices else 0)
 
         choice = response.choices[0]
         usage = response.usage
