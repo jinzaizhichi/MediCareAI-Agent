@@ -526,11 +526,12 @@ OUTPUT (search query only):"""
                 state.is_sufficient = True
             await self._update_interview_state(session_id, state)
             return [], state, [], "synthesize", ""
-        llm = LLMService(provider=self.provider)
-        engine = DynamicInterviewEngine(llm)
-        questions, state, searches, action, reasoning = await engine.decide_next(
-            state, patient_history=patient_history
-        )
+        async with async_session_maker() as db:
+            llm = LLMService(provider=self.provider, db=db)
+            engine = DynamicInterviewEngine(llm)
+            questions, state, searches, action, reasoning = await engine.decide_next(
+                state, patient_history=patient_history
+            )
         await self._update_interview_state(session_id, state)
         return questions, state, searches, action, reasoning
 
@@ -551,16 +552,20 @@ OUTPUT (search query only):"""
                 d = session.context.get("interview")
                 if d:
                     state = InterviewState.from_dict(d)
-        llm = LLMService(provider=self.provider)
-        engine = DynamicInterviewEngine(llm)
-        state = await engine.process_answer(state, question_id, answer)
+        async with async_session_maker() as db2:
+            llm = LLMService(provider=self.provider, db=db2)
+            engine = DynamicInterviewEngine(llm)
+            state = await engine.process_answer(state, question_id, answer)
         if state.red_flags_detected:
             state.is_sufficient = True
             await self._update_interview_state(session_id, state)
             return [], state, [], "synthesize", ""
-        questions, state, searches, action, reasoning = await engine.decide_next(
-            state, patient_history=patient_history
-        )
+        async with async_session_maker() as db3:
+            llm2 = LLMService(provider=self.provider, db=db3)
+            engine2 = DynamicInterviewEngine(llm2)
+            questions, state, searches, action, reasoning = await engine2.decide_next(
+                state, patient_history=patient_history
+            )
         await self._update_interview_state(session_id, state)
         return questions, state, searches, action, reasoning
 
