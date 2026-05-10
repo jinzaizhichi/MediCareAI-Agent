@@ -440,7 +440,6 @@ def _build_interview_prompt(
 # ---------------------------------------------------------------------------
 
 def _extract_json(text: str) -> dict[str, Any]:
-    """Extract JSON from LLM response (handles markdown code blocks)."""
     text = text.strip()
     if "```json" in text:
         match = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
@@ -450,6 +449,8 @@ def _extract_json(text: str) -> dict[str, Any]:
         match = re.search(r"```\s*(.*?)\s*```", text, re.DOTALL)
         if match:
             text = match.group(1).strip()
+    if not text:
+        raise ValueError("empty LLM response after extraction")
     return json.loads(text)
 
 
@@ -480,6 +481,7 @@ class DynamicInterviewEngine:
                 system_prompt=INTERVIEW_SYSTEM_PROMPT,
                 max_tokens=2000,
             )
+            self.logger.info(f"[DECIDE] LLM response len={len(response.content)} preview={response.content[:100]}")
             raw = _extract_json(response.content)
             decision = InterviewDecision.model_validate(raw)
             action = decision.action
@@ -522,7 +524,7 @@ class DynamicInterviewEngine:
             return questions, state, search_queries, action, decision.reasoning
 
         except Exception as e:
-            self.logger.error(f"[DECIDE] LLM FAILED: {e}", exc_info=True)
+            self.logger.error(f"[DECIDE] LLM FAILED: {e} | raw={response.content[:200] if 'response' in dir() else 'N/A'}", exc_info=True)
             state.fallback_count += 1
             if state.fallback_count >= 2 or len(state.asked_questions) >= 3:
                 state.is_sufficient = True
