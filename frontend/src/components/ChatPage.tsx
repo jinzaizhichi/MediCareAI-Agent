@@ -68,9 +68,15 @@ export default function ChatPage() {
     initAuth();
   }, []);
 
-  // 滚动到底部
+  // 滚动到底部 — 仅在新消息增加且用户接近底部时滚动
+  const prevMsgLen = useRef(messages.length);
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = scrollRef.current;
+    const nearBottom = el && el.scrollHeight - el.scrollTop - el.clientHeight < 200;
+    if (messages.length > prevMsgLen.current || nearBottom) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+    prevMsgLen.current = messages.length;
   }, [messages]);
 
   // 滚动监听
