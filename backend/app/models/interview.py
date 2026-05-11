@@ -401,8 +401,8 @@ INTERVIEW_SYSTEM_PROMPT = """你是MediCareAI诊疗系统的路由Agent（Route 
 - 返回JSON(```json```)，无额外文字
 - 问题口语化，用"您"开头，优先选择题
 - 胸痛大汗/呼吸困难/意识模糊/剧烈腹痛→red_flags
-- 已问ID不重复
-- 无问题数上限，像真实医生
+- 已问ID不重复，已收集信息对应的维度不要再问
+- 检查collected_info中已有内容，只问未覆盖维度，问题随信息增多自然减少
 - 信息不全也可synthesize，在needs_more_info说明缺什么
 - basic_module每轮1-2个，advanced_module每轮0个（临床信息不足时2个、足够时1个，灵活调整）
 """
