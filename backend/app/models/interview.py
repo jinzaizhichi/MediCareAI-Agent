@@ -505,9 +505,10 @@ class DynamicInterviewEngine:
 
             if decision.red_flags:
                 state.red_flags_detected.extend(decision.red_flags)
-                state.is_sufficient = True
                 self.logger.warning(f"[DECIDE] RED_FLAGS: {decision.red_flags}")
-                return [], state, [], "synthesize", ""
+                if len(state.asked_questions) >= state.min_questions:
+                    state.is_sufficient = True
+                    return [], state, [], "synthesize", ""
 
             if decision.differential_diagnoses:
                 diffs = [DifferentialHypothesis(diagnosis=d.diagnosis, confidence=d.confidence, key_features=d.key_features, reason=d.reason) for d in decision.differential_diagnoses]
