@@ -557,12 +557,25 @@ class DynamicInterviewEngine:
                 )
                 data = _extract_json(light_resp.content)
                 qid = data.get("question_id", f"lt_{state.fallback_count}")
-                question_text = data.get("question", f"关于您的{state.chief_complaint}，能再详细说说吗？")
+                question_text = data.get("question")
                 qtype = data.get("type", "text")
                 phase_label = data.get("phase", "现病史")
+                if not question_text:
+                    raise ValueError("empty question from lightweight LLM")
             except Exception:
+                try:
+                    light_resp2 = await self.llm.chat(
+                        messages=[{"role": "user", "content": f'关于"{state.chief_complaint}"，请用一句话追问。只返回JSON：{{"q":"问题文本"}}'}],
+                        system_prompt="只返回JSON。",
+                        max_tokens=128,
+                    )
+                    data2 = _extract_json(light_resp2.content)
+                    question_text = data2.get("q")
+                    if not question_text:
+                        raise ValueError("empty retry")
+                except Exception:
+                    question_text = state.chief_complaint
                 qid = f"lt_{state.fallback_count}"
-                question_text = f"关于您的{state.chief_complaint}，能再详细说说吗？"
                 qtype = "text"
                 phase_label = "现病史"
             fallback = QuestionTemplate(
@@ -744,21 +757,5 @@ class DynamicInterviewEngine:
 
         return state
 
-    def _fallback_question(self, state: InterviewState) -> QuestionTemplate | None:
-        state.fallback_count += 1
-        if state.fallback_count >= 2:
-            state.is_sufficient = True
-            return None
-
-        summary = state.get_summary()
-        return QuestionTemplate(
-            question_id="fallback_wrapup",
-            question=f"我已经了解了以下情况：\n\n{summary[:200]}\n\n能否再补充一些我刚才没问到的、但您觉得重要的信息？",
-            type="text",
-            hint="没有的话可以直接说'没有了'",
-            allow_skip=True,
-            phase="complete",
-            colloquial_phase="总结确认",
-        )
 
 

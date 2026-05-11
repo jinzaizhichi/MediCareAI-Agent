@@ -445,14 +445,14 @@ OUTPUT (search query only):"""
             # Attempt 3: If still None, create a minimal valid report with error indication
             if structured is None:
                 structured = DiagnosisReport(
-                    primary_diagnosis="诊断生成异常",
+                    primary_diagnosis="AI 诊断生成失败",
                     differential_diagnoses=[],
                     confidence="low",
                     severity="unknown",
-                    key_findings=["系统无法生成完整诊断报告，请重试。"],
-                    recommended_tests=["请咨询医生进行专业诊断"],
-                    recommended_actions=["请尽快就医"],
-                    red_flags=["系统异常，建议人工复核"],
+                    key_findings=["系统暂时无法生成诊断报告，可能是 LLM 服务繁忙或响应异常。"],
+                    recommended_tests=[],
+                    recommended_actions=["请稍后重试，或联系管理员检查 LLM 服务状态。"],
+                    red_flags=[],
                     knowledge_sources=[],
                 )
 
