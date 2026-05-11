@@ -591,53 +591,6 @@ class DynamicInterviewEngine:
             self.logger.info(f"[DECIDE] returning lightweight fallback question (fallback_count={state.fallback_count})")
             return [fallback], state, [], "ask", ""
 
-            if decision.differential_diagnoses:
-                diffs = [DifferentialHypothesis(diagnosis=d.diagnosis, confidence=d.confidence, key_features=d.key_features, supporting_evidence=d.confirmed_features, refuting_evidence=[], reason=d.reason) for d in decision.differential_diagnoses]
-                state.set_differential_diagnoses(diffs)
-
-            meaningful = [k for k, v in state.collected_info.items() if not k.startswith("__") and v not in ("无", "没有", "不清楚", "不记得", "跳过", "skipped", "")]
-            current = len(meaningful)
-            if current <= state.last_collected_count:
-                state.stagnation_counter += 1
-            else:
-                state.stagnation_counter = 0
-            state.last_collected_count = current
-
-            if state.stagnation_counter >= 8 and len(state.asked_questions) >= state.min_questions:
-                state.is_sufficient = True
-                return None, state, "", ""
-
-            if decision.action == "synthesize":
-                if len(state.asked_questions) >= state.min_questions:
-                    state.is_sufficient = True
-                    return None, state, "", ""
-                decision.action = "ask"
-
-            if decision.action == "search" and decision.search_query and self.search:
-                search_query = decision.search_query
-                search_reason = decision.search_reason
-                return None, state, search_query, search_reason
-
-            if decision.next_question:
-                q = decision.next_question
-                if q.question_id in state.asked_questions:
-                    q.question_id = f"{q.question_id}_{len(state.asked_questions)}"
-                question = QuestionTemplate(question_id=q.question_id, question=q.question, type=q.type, options=q.options if q.type == "choice" else [], hint=q.hint, allow_skip=q.allow_skip, phase=q.question_id, colloquial_phase="问诊")
-                state.current_question_id = question.question_id
-                state.fallback_count = 0
-                return question, state, "", ""
-
-            state.fallback_count += 1
-            if state.fallback_count >= 2:
-                state.is_sufficient = True
-                return None, state, "", ""
-            return None, state, "", ""
-        except Exception:
-            state.fallback_count += 1
-            if state.fallback_count >= 2 or len(state.asked_questions) >= 5:
-                state.is_sufficient = True
-            return None, state, "", ""
-
     async def process_answer(
         self,
         state: InterviewState,
