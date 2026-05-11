@@ -324,15 +324,17 @@ class InterviewOrchestrator:
             if isinstance(results, dict):
                 data = results.get("result", results)
                 if isinstance(data, dict):
+                    lines = []
+                    answer = data.get("answer", "") or ""
+                    if answer:
+                        lines.append(answer[:1500])
                     sources = data.get("sources", []) or []
                     ext = data.get("external_sources", []) or []
                     all_src = (sources if isinstance(sources, list) else []) + (ext if isinstance(ext, list) else [])
-                    lines = []
-                    for s in all_src[:5]:
+                    for s in all_src[:3]:
                         if isinstance(s, dict):
                             t = s.get("title", "") or ""
-                            sn = s.get("snippet", "") or s.get("content", "") or ""
-                            lines.append(f"- {t}: {sn[:200]}" if sn else f"- {t}")
+                            lines.append(f"- {t}")
                     return "\n".join(lines)[:2000] if lines else ""
                 return str(data)[:2000]
             return str(results)[:2000] if results else ""

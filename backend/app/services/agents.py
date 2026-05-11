@@ -536,22 +536,24 @@ OUTPUT (search query only):"""
                     )
                     if isinstance(result, dict) and result.get("success"):
                         r = result.get("result", result)
+                        if isinstance(r, dict):
+                            lines = []
+                            answer = r.get("answer", "") or ""
+                            if answer:
+                                lines.append(answer[:1500])
+                            sources = r.get("sources", []) or []
+                            ext = r.get("external_sources", []) or []
+                            all_src = (sources if isinstance(sources, list) else []) + (ext if isinstance(ext, list) else [])
+                            for s in all_src[:3]:
+                                if isinstance(s, dict):
+                                    t = s.get("title", "") or ""
+                                    lines.append(f"- {t}")
+                            return "\n".join(lines)[:2000] if lines else ""
                         if isinstance(r, list):
                             return "\n".join(
                                 f"- {item.get('title','')}: {item.get('content','')[:200]}"
                                 for item in r[:5]
                             )
-                        if isinstance(r, dict):
-                            sources = r.get("sources", []) or []
-                            ext = r.get("external_sources", []) or []
-                            all_src = (sources if isinstance(sources, list) else []) + (ext if isinstance(ext, list) else [])
-                            lines = []
-                            for s in all_src[:5]:
-                                if isinstance(s, dict):
-                                    t = s.get("title", "") or ""
-                                    sn = s.get("snippet", "") or s.get("content", "") or ""
-                                    lines.append(f"- {t}: {sn[:200]}" if sn else f"- {t}")
-                            return "\n".join(lines)[:2000] if lines else ""
                         return str(r)[:2000]
                     return str(result)[:2000] if result else ""
                 except Exception:
@@ -594,22 +596,24 @@ OUTPUT (search query only):"""
                     )
                     if isinstance(result, dict) and result.get("success"):
                         r = result.get("result", result)
+                        if isinstance(r, dict):
+                            lines = []
+                            answer = r.get("answer", "") or ""
+                            if answer:
+                                lines.append(answer[:1500])
+                            sources = r.get("sources", []) or []
+                            ext = r.get("external_sources", []) or []
+                            all_src = (sources if isinstance(sources, list) else []) + (ext if isinstance(ext, list) else [])
+                            for s in all_src[:3]:
+                                if isinstance(s, dict):
+                                    t = s.get("title", "") or ""
+                                    lines.append(f"- {t}")
+                            return "\n".join(lines)[:2000] if lines else ""
                         if isinstance(r, list):
                             return "\n".join(
                                 f"- {item.get('title','')}: {item.get('content','')[:200]}"
                                 for item in r[:5]
                             )
-                        if isinstance(r, dict):
-                            sources = r.get("sources", []) or []
-                            ext = r.get("external_sources", []) or []
-                            all_src = (sources if isinstance(sources, list) else []) + (ext if isinstance(ext, list) else [])
-                            lines = []
-                            for s in all_src[:5]:
-                                if isinstance(s, dict):
-                                    t = s.get("title", "") or ""
-                                    sn = s.get("snippet", "") or s.get("content", "") or ""
-                                    lines.append(f"- {t}: {sn[:200]}" if sn else f"- {t}")
-                            return "\n".join(lines)[:2000] if lines else ""
                         return str(r)[:2000]
                     return str(result)[:2000] if result else ""
                 except Exception:
