@@ -718,6 +718,7 @@ async def route_stream_continue(
 
         if not state.is_sufficient:
             yield f"event: complete\ndata: {json.dumps({'status': 'waiting_for_answer', 'session_id': session_id})}\n\n"
+            await asyncio.sleep(0.1)
             return
 
         # Interview complete — proceed to diagnosis using structured summary
