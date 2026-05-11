@@ -712,11 +712,6 @@ async def route_stream_continue(
             yield f"event: complete\ndata: {json.dumps({'status': 'waiting_for_answer', 'session_id': session_id})}\n\n"
             return
 
-        if state.pending_question_ids:
-            yield f"event: complete\ndata: {json.dumps({'status': 'waiting_for_answer', 'session_id': session_id})}\n\n"
-            await asyncio.sleep(0.1)
-            return
-
         # Check for red flags
         if state.red_flags_detected:
             yield f"event: red_flags\ndata: {json.dumps({'red_flags': state.red_flags_detected, 'message': '检测到危险信号，建议立即就医'})}\n\n"

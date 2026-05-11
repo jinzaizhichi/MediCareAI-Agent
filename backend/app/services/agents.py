@@ -573,10 +573,6 @@ OUTPUT (search query only):"""
             llm = LLMService(provider=self.provider, db=db2)
             engine = DynamicInterviewEngine(llm)
             state = await engine.process_answer(state, question_id, answer)
-        state.pending_question_ids = [q for q in getattr(state, 'pending_question_ids', []) if q != question_id]
-        if state.pending_question_ids:
-            await self._update_interview_state(session_id, state)
-            return [], state, [], "ask", ""
         async with async_session_maker() as db3:
             llm2 = LLMService(provider=self.provider, db=db3)
             async def _search2(query: str, _state=None) -> str:
