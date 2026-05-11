@@ -291,7 +291,7 @@ class InterviewOrchestrator:
             self.logger.warning("[ORCH] FORCING SYNTHESIZE due to red_flags after %d questions", len(state.asked_questions))
 
         if not deduped and action == "ask":
-            ctx_q = await self._generate_continuity_question(state)
+            ctx_q = await self._continuity_question(state)
             deduped = [ctx_q]
             self.logger.info("[ORCH] No questions generated, using LLM continuity question")
 
@@ -300,6 +300,30 @@ class InterviewOrchestrator:
         state.pending_question_ids = [q.question_id for q in deduped]
 
         return deduped, state, [], action, reasoning
+
+    async def _continuity_question(self, state: InterviewState) -> QuestionTemplate:
+        # No LLM → LLM light → double fallback
+        hard_fallback = QuestionTemplate(
+            question_id=f"cq_{len(state.asked_questions)}",
+            question="请继续描述您的症状，有什么新的变化或补充吗？",
+            type="text", hint="没有变化可以说'没有'", allow_skip=True,
+            phase="现病史", colloquial_phase="症状更新",
+        )
+        try:
+            r = await self.track1.llm.chat(
+                messages=[{"role": "user", "content": f'患者主诉：{state.chief_complaint}\n已问{len(state.asked_questions)}个问题。请生成1个简短的追问。只返回JSON：{{"q":"问题"}}'}],
+                system_prompt="你是问诊助手。只返回JSON。", max_tokens=128,
+            )
+            q_text = _extract_json(r.content).get("q", "")
+            if not q_text:
+                return hard_fallback
+            return QuestionTemplate(
+                question_id=f"cq_{len(state.asked_questions)}",
+                question=q_text, type="text", hint="请自由描述",
+                allow_skip=True, phase="现病史", colloquial_phase="症状更新",
+            )
+        except Exception:
+            return hard_fallback
 
     async def _run_search(self, chief_complaint: str, state: InterviewState) -> str:
         try:
