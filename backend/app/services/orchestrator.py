@@ -145,6 +145,7 @@ class Track1Agent:
         pending = [p.value for p in PHASE_ORDER if p.value not in state.collected_info]
         lines.append(f"\n## 未覆盖维度\n{', '.join(pending[:8])}")
         lines.append(f"\n## 已问数量\n{len(state.asked_questions)}")
+        lines.append("\n## 指令\n只生成basic_module，每轮1-2个问题，优先问未覆盖维度。不重复已收集信息对应的维度。")
         lines.append("\n" + TRACK1_DECISION_SCHEMA)
         return "\n".join(lines)
 
@@ -323,12 +324,18 @@ class InterviewOrchestrator:
     @staticmethod
     def _deduplicate(questions: list[QuestionTemplate], state: InterviewState) -> list[QuestionTemplate]:
         seen_ids = set(state.asked_questions)
+        seen_phases: set[str] = set()
+        for k, v in state.collected_info.items():
+            if not k.startswith("__") and v:
+                seen_phases.add(k)
         result = []
         for q in questions:
-            if q.question_id not in seen_ids:
-                seen_ids.add(q.question_id)
-                result.append(q)
-            else:
-                q.question_id = f"{q.question_id}_v2"
-                result.append(q)
-        return result[:4]
+            qid = q.question_id
+            phase = q.phase or ""
+            if qid in seen_ids or (phase and phase in seen_phases):
+                continue
+            seen_ids.add(qid)
+            if phase:
+                seen_phases.add(phase)
+            result.append(q)
+        return result[:2]
