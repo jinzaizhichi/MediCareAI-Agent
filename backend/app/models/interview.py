@@ -48,6 +48,11 @@ class InterviewPhase(str, PyEnum):
     PS_LIFESTYLE = "ps_lifestyle"
     PS_OCCUPATION = "ps_occupation"
     PS_TRAVEL = "ps_travel"
+    PS_GENERAL = "ps_general"
+
+    # Special Populations
+    PS_CHILD = "ps_child"
+    PS_FEMALE = "ps_female"
 
     # Family History
     FH_GENETIC = "fh_genetic"
@@ -78,6 +83,9 @@ PHASE_META: dict[InterviewPhase, dict[str, str]] = {
     InterviewPhase.PS_LIFESTYLE:  {"cat": "个人史", "colloquial": "生活习惯"},
     InterviewPhase.PS_OCCUPATION: {"cat": "个人史", "colloquial": "工作生活"},
     InterviewPhase.PS_TRAVEL:     {"cat": "个人史", "colloquial": "出行情况"},
+    InterviewPhase.PS_GENERAL:    {"cat": "个人史", "colloquial": "一般情况"},
+    InterviewPhase.PS_CHILD:      {"cat": "个人史", "colloquial": "儿童发育"},
+    InterviewPhase.PS_FEMALE:     {"cat": "个人史", "colloquial": "女性健康"},
     InterviewPhase.FH_GENETIC:    {"cat": "家族史", "colloquial": "家人健康"},
     InterviewPhase.FH_SIMILAR:    {"cat": "家族史", "colloquial": "家人健康"},
     InterviewPhase.MED_CURRENT:   {"cat": "用药史", "colloquial": "用药情况"},
@@ -102,6 +110,9 @@ PHASE_ORDER: list[InterviewPhase] = [
     InterviewPhase.PS_LIFESTYLE,
     InterviewPhase.PS_OCCUPATION,
     InterviewPhase.PS_TRAVEL,
+    InterviewPhase.PS_GENERAL,
+    InterviewPhase.PS_CHILD,
+    InterviewPhase.PS_FEMALE,
     InterviewPhase.FH_GENETIC,
     InterviewPhase.FH_SIMILAR,
     InterviewPhase.MED_CURRENT,
@@ -335,7 +346,10 @@ INTERVIEW_SYSTEM_PROMPT = """你是MediCareAI诊疗系统的路由Agent（Route 
 
 ### 轨道一：文本主诉 → 基本问诊
 患者输入口语化主诉 → 你按照中国执业医师"病史采集"标准设计基本问诊问题：
-  1.主诉 2.现病史(起病/症状特点/伴随/演变/诊疗经过/一般情况) 3.既往史 4.个人/家族/用药史
+  1.主诉 2.现病史(起病/症状特点/伴随/演变/诊疗经过) 3.既往史(慢性病/手术/传染病/过敏)
+  4.个人史(生活习惯/职业/出行/一般情况-睡眠饮食二便体重精神)
+  5.家族史 6.用药史
+  7.特殊人群：儿童(喂养/发育/接种)、女性(月经/婚育)——仅当患者特征匹配时触发
 
 ### 轨道二：搜索增强 → 精细化问诊
 对主诉进行SearXNG+RAG医学知识搜索 → 根据搜索结果设计靶向进阶问题：
@@ -359,7 +373,7 @@ INTERVIEW_SYSTEM_PROMPT = """你是MediCareAI诊疗系统的路由Agent（Route 
 ```json
 {
   "action": "ask",
-  "basic_module": [{"question_id":"hpi_xxx|pmh_xxx|med_xxx","question":"口语化问题","type":"choice|text","options":["选项"],"hint":"提示","allow_skip":true,"phase":"现病史-起病","reason":"为何问"}],
+  "basic_module": [{"question_id":"hpi_xxx|pmh_xxx|ps_xxx|fh_xxx|med_xxx|ps_child_xxx|ps_female_xxx","question":"口语化问题","type":"choice|text","options":["选项"],"hint":"提示","allow_skip":true,"phase":"临床维度","reason":"为何问"}],
   "advanced_module": [{"question_id":"adv_xxx","question":"基于搜索的靶向问题","type":"choice|text","options":["选项"],"hint":"提示","allow_skip":true,"reason":"搜索发现XX需确认"}],
   "differential_diagnoses": [{"diagnosis":"疑似疾病","confidence":"high|medium|low","key_features":["特征"],"reason":"理由"}],
   "search_queries": ["可选：本轮需搜索的术语"],
