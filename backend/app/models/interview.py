@@ -163,7 +163,7 @@ class QuestionTemplate:
 
     question_id: str
     question: str
-    type: str  # "choice" or "text"
+    type: str  # "choice", "multi_choice", or "text"
     options: list[str] = field(default_factory=list)
     hint: str = ""
     allow_skip: bool = True
@@ -302,7 +302,7 @@ class NextQuestionSchema(BaseModel):
 
     question_id: str = Field(..., description="标准医学标识符，如 hpi_onset, pmh_chronic 等")
     question: str = Field(..., description="呈现给患者的口语化问题文本，通俗易懂")
-    type: str = Field(..., pattern="^(choice|text)$", description="问题类型")
+    type: str = Field(..., pattern="^(choice|multi_choice|text)$", description="问题类型")
     options: list[str] = Field(default_factory=list, description="选择题选项（type=choice 时必填，至少2个）")
     hint: str = Field(default="", description="给患者的友好提示")
     allow_skip: bool = Field(default=True, description="是否允许跳过")
@@ -312,7 +312,7 @@ class NextQuestionSchema(BaseModel):
 class BasicQuestion(BaseModel):
     question_id: str = Field(..., description="标识符如 hpi_onset")
     question: str = Field(..., description="口语化问题")
-    type: str = Field(default="text", pattern="^(choice|text)$")
+    type: str = Field(default="text", pattern="^(choice|multi_choice|text)$")
     options: list[str] = Field(default_factory=list)
     hint: str = Field(default="")
     allow_skip: bool = Field(default=True)

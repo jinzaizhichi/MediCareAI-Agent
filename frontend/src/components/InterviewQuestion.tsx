@@ -33,13 +33,30 @@ function getPhaseStyle(phase?: string) {
 export default function InterviewQuestion({ question, onAnswer, disabled = false }: Props) {
   const [textAnswer, setTextAnswer] = useState('');
   const [answered, setAnswered] = useState(false);
+  const [selectedOptions, setSelectedOptions] = useState<Set<string>>(new Set());
 
   const phaseStyle = getPhaseStyle(question.colloquial_phase);
 
-  const handleChoice = (option: string) => {
+  const handleSingleChoice = (option: string) => {
     if (disabled || answered) return;
     setAnswered(true);
     onAnswer(question.question_id, option);
+  };
+
+  const toggleMultiOption = (option: string) => {
+    if (disabled || answered) return;
+    setSelectedOptions(prev => {
+      const next = new Set(prev);
+      if (next.has(option)) next.delete(option);
+      else next.add(option);
+      return next;
+    });
+  };
+
+  const handleMultiSubmit = () => {
+    if (disabled || answered || selectedOptions.size === 0) return;
+    setAnswered(true);
+    onAnswer(question.question_id, Array.from(selectedOptions).join('、'));
   };
 
   const handleTextSubmit = () => {
@@ -108,7 +125,7 @@ export default function InterviewQuestion({ question, onAnswer, disabled = false
                 label={option}
                 clickable
                 disabled={disabled || answered}
-                onClick={() => handleChoice(option)}
+                onClick={() => handleSingleChoice(option)}
                 sx={{
                   bgcolor: answered ? phaseStyle.bg : '#FFFFFF',
                   border: `1.5px solid ${phaseStyle.border}`,
@@ -134,7 +151,7 @@ export default function InterviewQuestion({ question, onAnswer, disabled = false
                 label="跳过这题"
                 clickable
                 disabled={disabled || answered}
-                onClick={() => handleChoice('skipped')}
+                onClick={() => handleSingleChoice('skipped')}
                 sx={{
                   bgcolor: 'transparent',
                   border: `1.5px dashed ${phaseStyle.border}`,
@@ -147,6 +164,52 @@ export default function InterviewQuestion({ question, onAnswer, disabled = false
                 }}
               />
             )}
+          </Box>
+        )}
+        {question.type === 'multi_choice' && question.options && (
+          <Box>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 1.5 }}>
+              {question.options.map((option) => (
+                <Chip
+                  key={option}
+                  label={option}
+                  clickable
+                  disabled={disabled || answered}
+                  onClick={() => toggleMultiOption(option)}
+                  variant={selectedOptions.has(option) ? 'filled' : 'outlined'}
+                  sx={{
+                    bgcolor: selectedOptions.has(option) ? phaseStyle.border : '#FFFFFF',
+                    color: selectedOptions.has(option) ? '#FFFFFF' : '#3E2723',
+                    border: `1.5px solid ${phaseStyle.border}`,
+                    fontWeight: 500,
+                    fontSize: 14,
+                    px: 0.5,
+                    '&:hover': {
+                      bgcolor: selectedOptions.has(option) ? phaseStyle.border : phaseStyle.bg,
+                      borderColor: phaseStyle.border,
+                      transform: 'translateY(-1px)',
+                    },
+                    transition: 'all 0.2s ease',
+                  }}
+                />
+              ))}
+            </Box>
+            <Button
+              variant="contained"
+              size="small"
+              onClick={handleMultiSubmit}
+              disabled={disabled || answered || selectedOptions.size === 0}
+              sx={{
+                borderRadius: 2,
+                bgcolor: phaseStyle.border,
+                '&:hover': { bgcolor: phaseStyle.border, opacity: 0.9 },
+                '&.Mui-disabled': { bgcolor: '#F5E6D3', color: '#8B7355' },
+                textTransform: 'none',
+                fontWeight: 600,
+              }}
+            >
+              确认选择 ({selectedOptions.size})
+            </Button>
           </Box>
         )}
 
