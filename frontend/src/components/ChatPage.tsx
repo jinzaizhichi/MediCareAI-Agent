@@ -76,7 +76,6 @@ export default function ChatPage() {
     }
     prevMsgLen.current = messages.length;
   }, [messages]);
-  }, [messages]);
 
   // 滚动监听
   const handleScroll = useCallback(() => {
