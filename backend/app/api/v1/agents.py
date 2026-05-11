@@ -536,8 +536,7 @@ Use Markdown formatting for readability.""",
                             return
                         elif state.red_flags_detected:
                             yield f"event: red_flags\ndata: {json.dumps({'red_flags': state.red_flags_detected, 'message': '检测到危险信号，建议立即就医'})}\n\n"
-                            yield f"event: complete\ndata: {json.dumps({'status': 'red_flags', 'session_id': session_id})}\n\n"
-                            return
+                            # Do NOT return — proceed to diagnosis with red flags included
 
                         yield f"event: thinking\ndata: {json.dumps({'step': 'diagnosis', 'message': '🧠 问诊信息充足，正在综合分析并搜索医学知识...'})}\n\n"
                         workflow_result = await diag_agent.run_full_diagnosis_workflow(
@@ -700,8 +699,7 @@ async def route_stream_continue(
         # Check for red flags
         if state.red_flags_detected:
             yield f"event: red_flags\ndata: {json.dumps({'red_flags': state.red_flags_detected, 'message': '检测到危险信号，建议立即就医'})}\n\n"
-            yield f"event: complete\ndata: {json.dumps({'status': 'red_flags', 'session_id': session_id})}\n\n"
-            return
+            # Do NOT return — proceed to diagnosis with red flags included
 
         # Interview complete — proceed to diagnosis using structured summary
         _msg_start = "🧠 问诊完成，正在整理问诊信息..."
