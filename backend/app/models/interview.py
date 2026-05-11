@@ -503,6 +503,10 @@ class DynamicInterviewEngine:
             action = decision.action
             self.logger.info(f"[DECIDE] action={action} basic_qs={len(decision.basic_module)} advanced_qs={len(decision.advanced_module)} searches={len(decision.search_queries)} diffs={len(decision.differential_diagnoses)}")
 
+            if action == "synthesize" and len(state.asked_questions) < state.min_questions:
+                self.logger.info(f"[DECIDE] LLM wanted synthesize but asked={len(state.asked_questions)} < min={state.min_questions}, overriding to ask")
+                action = "ask"
+
             if decision.red_flags:
                 state.red_flags_detected.extend(decision.red_flags)
                 self.logger.warning(f"[DECIDE] RED_FLAGS: {decision.red_flags}")
@@ -531,6 +535,17 @@ class DynamicInterviewEngine:
                     qid = f"{qid}_{len(state.asked_questions)}"
                 questions.append(QuestionTemplate(question_id=qid, question=m.question, type=m.type, options=m.options if m.type=="choice" else [], hint=m.hint, allow_skip=m.allow_skip, phase=m.phase, colloquial_phase=m.phase))
                 state.current_question_id = qid
+
+            if not questions and action == "ask":
+                questions.append(QuestionTemplate(
+                    question_id=f"cq_{state.fallback_count}",
+                    question="请继续描述您的症状，有什么新的变化或补充吗？",
+                    type="text",
+                    hint="没有变化可以说'没有'",
+                    allow_skip=True,
+                    phase="现病史",
+                    colloquial_phase="症状更新",
+                ))
 
             search_queries = decision.search_queries or []
             if decision.action == "search_only":
