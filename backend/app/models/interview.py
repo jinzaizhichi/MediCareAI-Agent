@@ -497,7 +497,7 @@ class DynamicInterviewEngine:
 
         try:
             from app.services.orchestrator import InterviewOrchestrator
-            orch = InterviewOrchestrator(track1_llm=self.llm, track2_llm=self.llm, search_executor=self.search)
+            orch = InterviewOrchestrator(self.llm, self.search)
             return await orch.run_round(state.chief_complaint, state, patient_history)
         except Exception as e:
             self.logger.error(f"[DECIDE] orchestrator failed: {e}", exc_info=True)
