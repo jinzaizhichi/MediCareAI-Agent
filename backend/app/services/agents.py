@@ -525,11 +525,6 @@ OUTPUT (search query only):"""
             for key in collected_info:
                 if key not in state.asked_questions:
                     state.asked_questions.append(key)
-        if state.red_flags_detected or state.is_sufficient or state.user_ended:
-            if state.red_flags_detected:
-                state.is_sufficient = True
-            await self._update_interview_state(session_id, state)
-            return [], state, [], "synthesize", ""
         async with async_session_maker() as db:
             llm = LLMService(provider=self.provider, db=db)
             async def _search(query: str, _state=None) -> str:
@@ -578,10 +573,6 @@ OUTPUT (search query only):"""
             llm = LLMService(provider=self.provider, db=db2)
             engine = DynamicInterviewEngine(llm)
             state = await engine.process_answer(state, question_id, answer)
-        if state.red_flags_detected:
-            state.is_sufficient = True
-            await self._update_interview_state(session_id, state)
-            return [], state, [], "synthesize", ""
         async with async_session_maker() as db3:
             llm2 = LLMService(provider=self.provider, db=db3)
             async def _search2(query: str, _state=None) -> str:
