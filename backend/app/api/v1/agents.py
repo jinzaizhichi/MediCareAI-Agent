@@ -561,7 +561,6 @@ Use Markdown formatting for readability.""",
                                 yield f"event: text\ndata: {json.dumps({'text': chunk})}\n\n"
                         yield f"event: complete\ndata: {json.dumps({'message': '✅ 响应完成', 'session_id': session_id})}\n\n"
                         try:
-                            from app.services.agents import async_session_maker
                             async with async_session_maker() as _db:
                                 _s = await _db.get(AgentSession, uuid.UUID(session_id))
                                 if _s and _s.context:
@@ -756,7 +755,6 @@ async def route_stream_continue(
                 for chunk in _chunk_text(content, chunk_size=80):
                     yield f"event: text\ndata: {json.dumps({'text': chunk})}\n\n"
             try:
-                from app.services.agents import async_session_maker
                 async with async_session_maker() as _db:
                     _s = await _db.get(AgentSession, uuid.UUID(session_id))
                     if _s and _s.context:
