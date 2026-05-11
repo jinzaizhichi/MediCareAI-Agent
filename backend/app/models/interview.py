@@ -479,6 +479,13 @@ class DynamicInterviewEngine:
         self.llm = llm_service
         self.search = search_executor
         self.logger = logging.getLogger("interview.engine")
+        self._orchestrator = None
+
+    def _get_orchestrator(self):
+        if self._orchestrator is None:
+            from app.services.orchestrator import InterviewOrchestrator
+            self._orchestrator = InterviewOrchestrator(self.llm, self.llm, self.search)
+        return self._orchestrator
 
     async def decide_next(
         self,
@@ -486,127 +493,27 @@ class DynamicInterviewEngine:
         patient_history: str | None = None,
         knowledge_context: str = "",
     ) -> tuple[list[QuestionTemplate], InterviewState, list[str], str, str]:
-        """Mesh-architecture clinical decision. Returns (questions, state, search_queries, action, reasoning)."""
-        prompt = _build_interview_prompt(state, patient_history, knowledge_context)
         self.logger.info(f"[DECIDE] asked={len(state.asked_questions)} pending_dims={len([p for p in PHASE_ORDER if p.value not in state.collected_info])}")
 
         try:
-            response = await self.llm.chat(
-                messages=[{"role": "user", "content": prompt}],
-                system_prompt=INTERVIEW_SYSTEM_PROMPT,
-                max_tokens=4096,
-                extra_body={"thinking": {"type": "disabled"}},
-            )
-            self.logger.info(f"[DECIDE] LLM response len={len(response.content)} preview={response.content[:100]}")
-            raw = _extract_json(response.content)
-            decision = InterviewDecision.model_validate(raw)
-            action = decision.action
-            self.logger.info(f"[DECIDE] action={action} basic_qs={len(decision.basic_module)} advanced_qs={len(decision.advanced_module)} searches={len(decision.search_queries)} diffs={len(decision.differential_diagnoses)}")
-
-            if action == "synthesize" and len(state.asked_questions) < state.min_questions:
-                self.logger.info(f"[DECIDE] LLM wanted synthesize but asked={len(state.asked_questions)} < min={state.min_questions}, overriding to ask")
-                action = "ask"
-
-            if decision.red_flags:
-                state.red_flags_detected.extend(decision.red_flags)
-                self.logger.warning(f"[DECIDE] RED_FLAGS: {decision.red_flags}")
-                if len(state.asked_questions) >= state.min_questions:
-                    state.is_sufficient = True
-                    return [], state, [], "synthesize", ""
-
-            if decision.differential_diagnoses:
-                diffs = [DifferentialHypothesis(diagnosis=d.diagnosis, confidence=d.confidence, key_features=d.key_features, reason=d.reason) for d in decision.differential_diagnoses]
-                state.set_differential_diagnoses(diffs)
-
-            meaningful = [k for k, v in state.collected_info.items() if not k.startswith("__") and v not in ("无","没有","不清楚","不记得","跳过","skipped","")]
-            current = len(meaningful)
-            state.stagnation_counter = state.stagnation_counter + 1 if current <= state.last_collected_count else 0
-            state.last_collected_count = current
-
-            if action == "synthesize":
-                state.is_sufficient = True
-                self.logger.info(f"[DECIDE] SYNTHESIZE: diagnosis={decision.primary_diagnosis}")
-                return [], state, [], "synthesize", decision.reasoning
-
-            questions: list[QuestionTemplate] = []
-            for m in decision.basic_module + decision.advanced_module:
-                qid = m.question_id
-                if qid in state.asked_questions:
-                    qid = f"{qid}_{len(state.asked_questions)}"
-                questions.append(QuestionTemplate(question_id=qid, question=m.question, type=m.type, options=m.options if m.type=="choice" else [], hint=m.hint, allow_skip=m.allow_skip, phase=m.phase, colloquial_phase=m.phase))
-                state.current_question_id = qid
-
-            if not questions and action == "ask":
-                questions.append(QuestionTemplate(
-                    question_id=f"cq_{state.fallback_count}",
-                    question="请继续描述您的症状，有什么新的变化或补充吗？",
-                    type="text",
-                    hint="没有变化可以说'没有'",
-                    allow_skip=True,
-                    phase="现病史",
-                    colloquial_phase="症状更新",
-                ))
-
-            search_queries = decision.search_queries or []
-            if decision.action == "search_only":
-                search_queries = search_queries or [state.chief_complaint]
-                self.logger.info(f"[DECIDE] SEARCH_ONLY: queries={search_queries}")
-
-            state.fallback_count = 0
-            return questions, state, search_queries, action, decision.reasoning
-
+            from app.services.orchestrator import InterviewOrchestrator
+            orch = InterviewOrchestrator(track1_llm=self.llm, track2_llm=self.llm, search_executor=self.search)
+            return await orch.run_round(state.chief_complaint, state, patient_history)
         except Exception as e:
-            self.logger.error(f"[DECIDE] LLM FAILED: {e} | raw={response.content[:200] if 'response' in dir() else 'N/A'}", exc_info=True)
-            state.fallback_count += 1
-            if state.fallback_count >= 2 or len(state.asked_questions) >= 3:
-                state.is_sufficient = True
-                self.logger.warning(f"[DECIDE] FORCING SYNTHESIZE after {state.fallback_count} failures")
-                return [], state, [], "synthesize", ""
-            # Lightweight LLM call with minimal prompt — far less likely to time out
-            try:
-                light_resp = await self.llm.chat(
-                    messages=[{
-                        "role": "user",
-                        "content": f'患者主诉：{state.chief_complaint}\n\n请生成1个口语化的追问，让患者进一步描述症状。返回JSON：{{"question":"...","question_id":"lt_hpi_001","type":"text","phase":"现病史"}}'
-                    }],
-                    system_prompt="你是问诊助手。只返回JSON。",
-                    max_tokens=256,
-                )
-                data = _extract_json(light_resp.content)
-                qid = data.get("question_id", f"lt_{state.fallback_count}")
-                question_text = data.get("question")
-                qtype = data.get("type", "text")
-                phase_label = data.get("phase", "现病史")
-                if not question_text:
-                    raise ValueError("empty question from lightweight LLM")
-            except Exception:
-                try:
-                    light_resp2 = await self.llm.chat(
-                        messages=[{"role": "user", "content": f'关于"{state.chief_complaint}"，请用一句话追问。只返回JSON：{{"q":"问题文本"}}'}],
-                        system_prompt="只返回JSON。",
-                        max_tokens=128,
-                    )
-                    data2 = _extract_json(light_resp2.content)
-                    question_text = data2.get("q")
-                    if not question_text:
-                        raise ValueError("empty retry")
-                except Exception:
-                    question_text = state.chief_complaint
-                qid = f"lt_{state.fallback_count}"
-                qtype = "text"
-                phase_label = "现病史"
-            fallback = QuestionTemplate(
-                question_id=qid,
-                question=question_text,
-                type=qtype,
-                hint="请自由描述",
-                allow_skip=False,
-                phase=phase_label,
-                colloquial_phase=phase_label,
-            )
-            state.current_question_id = qid
-            self.logger.info(f"[DECIDE] returning lightweight fallback question (fallback_count={state.fallback_count})")
-            return [fallback], state, [], "ask", ""
+            self.logger.error(f"[DECIDE] orchestrator failed: {e}", exc_info=True)
+            return self._decide_fallback(state)
+
+    def _decide_fallback(self, state: InterviewState):
+        state.fallback_count += 1
+        if state.fallback_count >= 2:
+            state.is_sufficient = True
+            return [], state, [], "synthesize", ""
+        q = QuestionTemplate(question_id=f"fb_{state.fallback_count}",
+            question="请继续描述您的症状，有什么新的变化或补充吗？",
+            type="text", hint="没有变化可以说'没有'", allow_skip=True,
+            phase="现病史", colloquial_phase="症状更新")
+        state.current_question_id = q.question_id
+        return [q], state, [], "ask", ""
 
     async def process_answer(
         self,
