@@ -297,6 +297,7 @@ class InterviewOrchestrator:
 
         for q in deduped:
             state.current_question_id = q.question_id
+        state.pending_question_ids = [q.question_id for q in deduped]
 
         return deduped, state, [], action, reasoning
 

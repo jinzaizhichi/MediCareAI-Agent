@@ -192,6 +192,7 @@ class InterviewState:
     stagnation_counter: int = 0      # Consecutive rounds without new info
     last_collected_count: int = 0    # Info dimension count in last round
     fallback_count: int = 0         # Consecutive fallback uses (LLM failed)
+    pending_question_ids: list[str] = field(default_factory=list)  # Unanswered from current round
     # User explicitly ended interview
     user_ended: bool = False
     # Interview phase tracking
@@ -216,6 +217,7 @@ class InterviewState:
             "stagnation_counter": self.stagnation_counter,
             "last_collected_count": self.last_collected_count,
             "fallback_count": self.fallback_count,
+            "pending_question_ids": self.pending_question_ids,
             "user_ended": self.user_ended,
             "phase": self.phase,
         }
@@ -236,6 +238,7 @@ class InterviewState:
             stagnation_counter=data.get("stagnation_counter", 0),
             last_collected_count=data.get("last_collected_count", 0),
             fallback_count=data.get("fallback_count", 0),
+            pending_question_ids=data.get("pending_question_ids", []),
             user_ended=data.get("user_ended", False),
             phase=data.get("phase", "interviewing"),
         )
@@ -513,6 +516,7 @@ class DynamicInterviewEngine:
             type="text", hint="没有变化可以说'没有'", allow_skip=True,
             phase="现病史", colloquial_phase="症状更新")
         state.current_question_id = q.question_id
+        state.pending_question_ids = [q.question_id]
         return [q], state, [], "ask", ""
 
     async def process_answer(
