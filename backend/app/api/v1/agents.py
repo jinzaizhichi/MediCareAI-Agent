@@ -560,6 +560,19 @@ Use Markdown formatting for readability.""",
                             for chunk in _chunk_text(content, chunk_size=80):
                                 yield f"event: text\ndata: {json.dumps({'text': chunk})}\n\n"
                         yield f"event: complete\ndata: {json.dumps({'message': '✅ 响应完成', 'session_id': session_id})}\n\n"
+                        try:
+                            from app.services.agents import async_session_maker
+                            async with async_session_maker() as _db:
+                                _s = await _db.get(AgentSession, uuid.UUID(session_id))
+                                if _s and _s.context:
+                                    _ctx = _s.context or {}
+                                    _iv = _ctx.get("interview") or {}
+                                    _iv["phase"] = "completed"
+                                    _ctx["interview"] = _iv
+                                    _s.context = _ctx
+                                    await _db.commit()
+                        except Exception:
+                            pass
                         return
                     except Exception:
                         # Interview failed — fall through to direct diagnosis
@@ -689,6 +702,10 @@ async def route_stream_continue(
         if searches:
             yield f"event: thinking\ndata: {json.dumps({'step': 'search', 'message': '🔍 后台搜索中...'})}\n\n"
 
+        if state.phase == "completed":
+            yield f"event: complete\ndata: {json.dumps({'status': 'already_diagnosed', 'session_id': session_id})}\n\n"
+            return
+
         if questions:
             yield f"event: interview_progress\ndata: {json.dumps({'asked_count': len(state.asked_questions)})}\n\n"
             q_list = [{"question_id": nq.question_id, "question": nq.question, "type": nq.type, "options": nq.options, "hint": nq.hint, "allow_skip": nq.allow_skip, "phase": nq.phase, "colloquial_phase": nq.colloquial_phase} for nq in questions]
@@ -738,6 +755,19 @@ async def route_stream_continue(
                 content = result.content if isinstance(result.content, str) else json.dumps(result.content, ensure_ascii=False)
                 for chunk in _chunk_text(content, chunk_size=80):
                     yield f"event: text\ndata: {json.dumps({'text': chunk})}\n\n"
+            try:
+                from app.services.agents import async_session_maker
+                async with async_session_maker() as _db:
+                    _s = await _db.get(AgentSession, uuid.UUID(session_id))
+                    if _s and _s.context:
+                        _ctx = _s.context or {}
+                        _iv = _ctx.get("interview") or {}
+                        _iv["phase"] = "completed"
+                        _ctx["interview"] = _iv
+                        _s.context = _ctx
+                        await _db.commit()
+            except Exception:
+                pass
         except Exception as e:
             import traceback, logging as _logmod
             _log = _logmod.getLogger("agents")
