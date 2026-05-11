@@ -544,7 +544,21 @@ class DynamicInterviewEngine:
             if state.fallback_count >= 2 or len(state.asked_questions) >= 3:
                 state.is_sufficient = True
                 self.logger.warning(f"[DECIDE] FORCING SYNTHESIZE after {state.fallback_count} failures")
-            return [], state, [], "synthesize", ""
+                return [], state, [], "synthesize", ""
+            # First failure with insufficient data: ask a fallback question instead of synthesizing
+            qid = f"fallback_{state.fallback_count}"
+            fallback = QuestionTemplate(
+                question_id=qid,
+                question="请您详细描述一下主要不适：从什么时候开始、是什么感觉、有没有什么情况会让它加重或缓解？",
+                type="text",
+                hint="请自由描述您的症状",
+                allow_skip=False,
+                phase="现病史",
+                colloquial_phase="症状情况",
+            )
+            state.current_question_id = qid
+            self.logger.info(f"[DECIDE] returning fallback question (fallback_count={state.fallback_count})")
+            return [fallback], state, [], "ask", ""
 
             if decision.differential_diagnoses:
                 diffs = [DifferentialHypothesis(diagnosis=d.diagnosis, confidence=d.confidence, key_features=d.key_features, supporting_evidence=d.confirmed_features, refuting_evidence=[], reason=d.reason) for d in decision.differential_diagnoses]
