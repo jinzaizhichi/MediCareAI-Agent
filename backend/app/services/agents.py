@@ -532,7 +532,25 @@ OUTPUT (search query only):"""
             return [], state, [], "synthesize", ""
         async with async_session_maker() as db:
             llm = LLMService(provider=self.provider, db=db)
-            engine = DynamicInterviewEngine(llm)
+            async def _search(query: str, _state=None) -> str:
+                try:
+                    import asyncio
+                    result = await asyncio.wait_for(
+                        GLOBAL_REGISTRY.execute("search_medical_knowledge", {"query": query, "top_k": 5}),
+                        timeout=25.0,
+                    )
+                    if isinstance(result, dict) and result.get("success"):
+                        r = result.get("result", result)
+                        if isinstance(r, list):
+                            return "\n".join(
+                                f"- {item.get('title','')}: {item.get('content','')[:200]}"
+                                for item in r[:5]
+                            )
+                        return str(r)[:2000]
+                    return str(result)[:2000] if result else ""
+                except Exception:
+                    return ""
+            engine = DynamicInterviewEngine(llm, _search)
             questions, state, searches, action, reasoning = await engine.decide_next(
                 state, patient_history=patient_history
             )
