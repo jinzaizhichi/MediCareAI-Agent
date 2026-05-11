@@ -17,6 +17,7 @@ from app.models.interview import (
     QuestionTemplate,
     InterviewDecision,
     DifferentialHypothesis,
+    PHASE_ORDER,
     _extract_json,
 )
 from app.services.llm import LLMService
@@ -141,7 +142,7 @@ class Track1Agent:
             for k, v in recent[-8:]:
                 if not k.startswith("__"):
                     lines.append(f"- {k}: {str(v)[:100]}")
-        pending = [p.value for p in __import__('app.models.interview').PHASE_ORDER if p.value not in state.collected_info]
+        pending = [p.value for p in PHASE_ORDER if p.value not in state.collected_info]
         lines.append(f"\n## 未覆盖维度\n{', '.join(pending[:8])}")
         lines.append(f"\n## 已问数量\n{len(state.asked_questions)}")
         lines.append("\n" + TRACK1_DECISION_SCHEMA)
@@ -248,7 +249,7 @@ class InterviewOrchestrator:
         self.logger.info(
             "[ORCH] asked=%d pending=%d",
             len(state.asked_questions),
-            len([p for p in __import__('app.models.interview').PHASE_ORDER if p.value not in state.collected_info]),
+            len([p for p in PHASE_ORDER if p.value not in state.collected_info]),
         )
 
         # Phase 1: Track1 + Search in parallel
