@@ -545,19 +545,37 @@ class DynamicInterviewEngine:
                 state.is_sufficient = True
                 self.logger.warning(f"[DECIDE] FORCING SYNTHESIZE after {state.fallback_count} failures")
                 return [], state, [], "synthesize", ""
-            # First failure with insufficient data: ask a fallback question instead of synthesizing
-            qid = f"fallback_{state.fallback_count}"
+            # Lightweight LLM call with minimal prompt — far less likely to time out
+            try:
+                light_resp = await self.llm.chat(
+                    messages=[{
+                        "role": "user",
+                        "content": f'患者主诉：{state.chief_complaint}\n\n请生成1个口语化的追问，让患者进一步描述症状。返回JSON：{{"question":"...","question_id":"lt_hpi_001","type":"text","phase":"现病史"}}'
+                    }],
+                    system_prompt="你是问诊助手。只返回JSON。",
+                    max_tokens=256,
+                )
+                data = _extract_json(light_resp.content)
+                qid = data.get("question_id", f"lt_{state.fallback_count}")
+                question_text = data.get("question", f"关于您的{state.chief_complaint}，能再详细说说吗？")
+                qtype = data.get("type", "text")
+                phase_label = data.get("phase", "现病史")
+            except Exception:
+                qid = f"lt_{state.fallback_count}"
+                question_text = f"关于您的{state.chief_complaint}，能再详细说说吗？"
+                qtype = "text"
+                phase_label = "现病史"
             fallback = QuestionTemplate(
                 question_id=qid,
-                question="请您详细描述一下主要不适：从什么时候开始、是什么感觉、有没有什么情况会让它加重或缓解？",
-                type="text",
-                hint="请自由描述您的症状",
+                question=question_text,
+                type=qtype,
+                hint="请自由描述",
                 allow_skip=False,
-                phase="现病史",
-                colloquial_phase="症状情况",
+                phase=phase_label,
+                colloquial_phase=phase_label,
             )
             state.current_question_id = qid
-            self.logger.info(f"[DECIDE] returning fallback question (fallback_count={state.fallback_count})")
+            self.logger.info(f"[DECIDE] returning lightweight fallback question (fallback_count={state.fallback_count})")
             return [fallback], state, [], "ask", ""
 
             if decision.differential_diagnoses:
