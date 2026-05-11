@@ -715,7 +715,10 @@ async def route_stream_continue(
         # Check for red flags
         if state.red_flags_detected:
             yield f"event: red_flags\ndata: {json.dumps({'red_flags': state.red_flags_detected, 'message': '检测到危险信号，建议立即就医'})}\n\n"
-            # Do NOT return — proceed to diagnosis with red flags included
+
+        if not state.is_sufficient:
+            yield f"event: complete\ndata: {json.dumps({'status': 'waiting_for_answer', 'session_id': session_id})}\n\n"
+            return
 
         # Interview complete — proceed to diagnosis using structured summary
         _msg_start = "🧠 问诊完成，正在整理问诊信息..."
