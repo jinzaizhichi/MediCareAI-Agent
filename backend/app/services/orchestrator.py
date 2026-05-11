@@ -291,16 +291,9 @@ class InterviewOrchestrator:
             self.logger.warning("[ORCH] FORCING SYNTHESIZE due to red_flags after %d questions", len(state.asked_questions))
 
         if not deduped and action == "ask":
-            deduped = [QuestionTemplate(
-                question_id=f"cq_{len(state.asked_questions)}",
-                question="请继续描述您的症状，有什么新的变化或补充吗？",
-                type="text",
-                hint="没有变化可以说'没有'",
-                allow_skip=True,
-                phase="现病史",
-                colloquial_phase="症状更新",
-            )]
-            self.logger.info("[ORCH] No questions generated, using continuity question")
+            ctx_q = await self._generate_continuity_question(state)
+            deduped = [ctx_q]
+            self.logger.info("[ORCH] No questions generated, using LLM continuity question")
 
         for q in deduped:
             state.current_question_id = q.question_id

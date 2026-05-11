@@ -504,16 +504,25 @@ class DynamicInterviewEngine:
             return await orch.decide_next(state, patient_history)
         except Exception as e:
             self.logger.error(f"[DECIDE] orchestrator failed: {e}", exc_info=True)
-            return self._decide_fallback(state)
+            return await self._decide_fallback(state)
 
-    def _decide_fallback(self, state: InterviewState):
+    async def _decide_fallback(self, state: InterviewState):
         state.fallback_count += 1
         if state.fallback_count >= 2:
             state.is_sufficient = True
             return [], state, [], "synthesize", ""
+        try:
+            r = await self.llm.chat(
+                messages=[{"role": "user", "content": f'患者主诉：{state.chief_complaint}\n已问{len(state.asked_questions)}个问题。请生成1个追问。只返回JSON：{{"q":"问题"}}'}],
+                system_prompt="只返回JSON。", max_tokens=128)
+            q_text = _extract_json(r.content).get("q", "")
+        except Exception:
+            q_text = ""
+        if not q_text:
+            q_text = f"关于{state.chief_complaint}，请再多说一些细节好吗？"
         q = QuestionTemplate(question_id=f"fb_{state.fallback_count}",
-            question="请继续描述您的症状，有什么新的变化或补充吗？",
-            type="text", hint="没有变化可以说'没有'", allow_skip=True,
+            question=q_text,
+            type="text", hint="请自由描述", allow_skip=True,
             phase="现病史", colloquial_phase="症状更新")
         state.current_question_id = q.question_id
         state.pending_question_ids = [q.question_id]
