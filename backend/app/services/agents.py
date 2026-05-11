@@ -541,6 +541,17 @@ OUTPUT (search query only):"""
                                 f"- {item.get('title','')}: {item.get('content','')[:200]}"
                                 for item in r[:5]
                             )
+                        if isinstance(r, dict):
+                            sources = r.get("sources", []) or []
+                            ext = r.get("external_sources", []) or []
+                            all_src = (sources if isinstance(sources, list) else []) + (ext if isinstance(ext, list) else [])
+                            lines = []
+                            for s in all_src[:5]:
+                                if isinstance(s, dict):
+                                    t = s.get("title", "") or ""
+                                    sn = s.get("snippet", "") or s.get("content", "") or ""
+                                    lines.append(f"- {t}: {sn[:200]}" if sn else f"- {t}")
+                            return "\n".join(lines)[:2000] if lines else ""
                         return str(r)[:2000]
                     return str(result)[:2000] if result else ""
                 except Exception:
@@ -588,6 +599,17 @@ OUTPUT (search query only):"""
                                 f"- {item.get('title','')}: {item.get('content','')[:200]}"
                                 for item in r[:5]
                             )
+                        if isinstance(r, dict):
+                            sources = r.get("sources", []) or []
+                            ext = r.get("external_sources", []) or []
+                            all_src = (sources if isinstance(sources, list) else []) + (ext if isinstance(ext, list) else [])
+                            lines = []
+                            for s in all_src[:5]:
+                                if isinstance(s, dict):
+                                    t = s.get("title", "") or ""
+                                    sn = s.get("snippet", "") or s.get("content", "") or ""
+                                    lines.append(f"- {t}: {sn[:200]}" if sn else f"- {t}")
+                            return "\n".join(lines)[:2000] if lines else ""
                         return str(r)[:2000]
                     return str(result)[:2000] if result else ""
                 except Exception:

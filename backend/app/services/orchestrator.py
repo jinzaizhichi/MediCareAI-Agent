@@ -321,7 +321,21 @@ class InterviewOrchestrator:
                     f"- {getattr(r, 'title', '')}: {getattr(r, 'snippet', '')[:200]}"
                     for r in results[:5]
                 )
-            return str(results)[:2000]
+            if isinstance(results, dict):
+                data = results.get("result", results)
+                if isinstance(data, dict):
+                    sources = data.get("sources", []) or []
+                    ext = data.get("external_sources", []) or []
+                    all_src = (sources if isinstance(sources, list) else []) + (ext if isinstance(ext, list) else [])
+                    lines = []
+                    for s in all_src[:5]:
+                        if isinstance(s, dict):
+                            t = s.get("title", "") or ""
+                            sn = s.get("snippet", "") or s.get("content", "") or ""
+                            lines.append(f"- {t}: {sn[:200]}" if sn else f"- {t}")
+                    return "\n".join(lines)[:2000] if lines else ""
+                return str(data)[:2000]
+            return str(results)[:2000] if results else ""
         except asyncio.TimeoutError:
             self.logger.warning("[ORCH] Search timed out")
             return ""
