@@ -111,7 +111,14 @@ class Track1Agent:
                 extra_body={"thinking": {"type": "disabled"}},
             )
             raw = _extract_json(response.content)
-            decision = InterviewDecision.model_validate(raw)
+            if not raw or not isinstance(raw, dict):
+                logger.error("[TRACK1] invalid JSON: %s", response.content[:300])
+                return [], [], [], ""
+            try:
+                decision = InterviewDecision.model_validate(raw)
+            except Exception as ve:
+                logger.error("[TRACK1] validation: %s\nraw=%s", ve, json.dumps(raw, ensure_ascii=False)[:500])
+                return [], [], [], ""
             questions = self._to_templates(decision.basic_module, state)
             logger.info(
                 "[TRACK1] questions=%d red_flags=%d",
