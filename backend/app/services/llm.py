@@ -204,6 +204,7 @@ class LLMService:
         temperature: float | None = None,
         max_tokens: int | None = None,
         system_prompt: str | None = None,
+        extra_body: dict | None = None,
     ) -> LLMResponse:
         """Send a non-streaming chat completion request."""
         client = await self._get_client()
@@ -220,12 +221,15 @@ class LLMService:
         _model = model or default_model
         logger.info("[LLM_PRE] provider=%s model=%s msgs=%d max_tokens=%d",
                      self.provider, _model, len(msgs), max_tokens or 0)
-        response = await client.chat.completions.create(
+        kwargs: dict[str, Any] = dict(
             model=_model,
             messages=msgs,
             max_tokens=max_tokens,
             stream=False,
         )
+        if extra_body:
+            kwargs["extra_body"] = extra_body
+        response = await client.chat.completions.create(**kwargs)
         logger.info("[LLM_POST] got response, choices=%d",
                      len(response.choices) if response.choices else 0)
 
