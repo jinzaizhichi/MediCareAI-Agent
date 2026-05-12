@@ -314,7 +314,8 @@ class InterviewOrchestrator:
         try:
             r = await self.track1.llm.chat(
                 messages=[{"role": "user", "content": f'问题：{q.question}\n针对此问题，列出3-6个具体选项。只返回JSON数组：["选项1","选项2","选项3"]'}],
-                system_prompt="你是临床选项生成助手。只返回JSON数组。", max_tokens=256)
+                system_prompt="你是临床选项生成助手。只返回JSON数组。", max_tokens=256,
+                extra_body={"thinking": {"type": "disabled"}})
             data = _extract_json(r.content)
             if isinstance(data, list):
                 return [str(x) for x in data if x][:6]
