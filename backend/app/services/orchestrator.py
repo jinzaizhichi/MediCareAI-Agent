@@ -276,6 +276,11 @@ class InterviewOrchestrator:
         track1_questions, diffs, red_flags, reasoning = await track1_task
         search_results = await search_task
 
+        # Mark Track1 covered dimensions so Track2 sees them
+        for q in track1_questions:
+            if q.phase and q.phase not in state.collected_info:
+                state.collected_info[q.phase] = "asked_by_track1"
+
         # Process red flags from Track1
         if red_flags:
             state.red_flags_detected.extend(red_flags)
@@ -285,7 +290,7 @@ class InterviewOrchestrator:
         if diffs:
             state.set_differential_diagnoses(diffs)
 
-        # Phase 2: Track2 generates refinement questions from search results
+        # Phase 2: Track2 generates with Track1 dimensions visible
         track2_questions = await self.track2.generate(state, search_results, diffs)
 
         # Phase 3: Merge and deduplicate
