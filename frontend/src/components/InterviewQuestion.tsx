@@ -166,7 +166,7 @@ export default function InterviewQuestion({ question, onAnswer, disabled = false
             )}
           </Box>
         )}
-        {question.type === 'multi_choice' && question.options && (
+        {question.type === 'multi_choice' && question.options && question.options.length > 0 && (
           <Box>
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 1.5 }}>
               {question.options.map((option) => (
@@ -212,7 +212,7 @@ export default function InterviewQuestion({ question, onAnswer, disabled = false
             </Button>
           </Box>
         )}
-        {question.type === 'multi_choice' && !question.options && (
+        {question.type === 'multi_choice' && (!question.options || question.options.length === 0) && (
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
             <TextField
               fullWidth size="small"
