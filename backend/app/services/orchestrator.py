@@ -283,6 +283,11 @@ class InterviewOrchestrator:
         all_questions = track1_questions + track2_questions
         deduped = self._deduplicate(all_questions, state)
 
+        for q in deduped:
+            if q.type == "multi_choice" and (not q.options or len(q.options) < 2):
+                q.type = "text"
+                q.options = []
+
         # Phase 4: Decision logic
         action = "ask"
         if state.red_flags_detected and len(state.asked_questions) >= state.min_questions:
