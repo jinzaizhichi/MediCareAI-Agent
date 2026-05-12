@@ -162,21 +162,65 @@ def _extract_phase_key(question_id: str) -> str:
 # Questions about the same symptom but with different question_id prefixes
 # (e.g. hpi_associated vs ps_general for fever) still map to one cannonical key.
 _SYMPTOM_KEYWORDS: list[tuple[str, list[str]]] = [
-    ("symptom_fever",       ["发烧", "发热", "体温", "fever"]),
-    ("symptom_cough",       ["咳嗽", "cough"]),
-    ("symptom_vomit",       ["呕吐", "恶心", "vomit", "nausea"]),
-    ("symptom_diarrhea",    ["腹泻", "拉肚子", "大便", "排便", "diarrhea", "stool"]),
-    ("symptom_pain",        ["疼痛", "痛", "疼", "pain"]),
-    ("symptom_dizziness",   ["头晕", "眩晕", "dizziness", "vertigo"]),
-    ("symptom_fatigue",     ["乏力", "疲劳", "没精神", "fatigue"]),
-    ("symptom_appetite",    ["食欲", "进食", "胃口", "appetite"]),
-    ("symptom_sleep",       ["睡眠", "失眠", "睡觉", "sleep", "insomnia"]),
-    ("symptom_rash",        ["皮疹", "疹子", "红斑", "rash"]),
-    ("symptom_breathing",   ["呼吸", "气短", "气喘", "breath", "dyspnea"]),
-    ("symptom_urine",       ["排尿", "小便", "尿", "urine"]),
-    ("symptom_weight",      ["体重", "weight"]),
-    ("symptom_medication",  ["用药", "吃药", "服药", "药物", "medication", "drug"]),
-    ("symptom_allergy",     ["过敏", "allergy"]),
+    # --- 体温与全身状态 ---
+    ("symptom_fever",       ["发烧", "发热", "体温", "烧", "低烧", "高烧", "滚烫", "fever", "temperature"]),
+    ("symptom_chills",      ["怕冷", "畏寒", "恶寒", "发冷", "寒战", "发抖", "chills", "shiver"]),
+    ("symptom_sweat",       ["出汗", "盗汗", "自汗", "多汗", "冷汗", "虚汗", "sweat", "night sweat"]),
+    ("symptom_fatigue",     ["乏力", "疲劳", "倦怠", "无力", "没力气", "没精神", "没劲", "累", "精神差", "fatigue", "weakness", "lethargy"]),
+    ("symptom_weight",      ["消瘦", "变瘦", "体重下降", "体重减轻", "体重增加", "变胖", "肥胖", "weight", "obesity"]),
+    ("symptom_edema",       ["水肿", "浮肿", "肿", "肿胀", "edema", "swelling"]),
+    # --- 疼痛：按部位 (各自独立，避免 false positive) ---
+    ("symptom_headache",    ["头痛", "头疼", "偏头痛", "headache", "migraine"]),
+    ("symptom_chest_pain",  ["胸痛", "胸口痛", "心口痛", "胸疼", "chest pain"]),
+    ("symptom_abdominal_pain", ["腹痛", "肚子痛", "肚子疼", "胃痛", "胃疼", "小腹痛", "abdominal pain", "stomach pain", "stomachache"]),
+    ("symptom_back_pain",   ["腰背痛", "腰痛", "背痛", "腰疼", "背疼", "back pain", "low back pain"]),
+    ("symptom_joint_pain",  ["关节痛", "关节疼", "膝盖痛", "肩痛", "肩膀痛", "joint pain", "arthralgia"]),
+    ("symptom_throat_pain", ["咽痛", "喉咙痛", "嗓子痛", "嗓子疼", "咽喉痛", "sore throat"]),
+    # --- 呼吸系统 ---
+    ("symptom_cough",       ["咳嗽", "咳", "干咳", "cough"]),
+    ("symptom_sputum",      ["咳痰", "痰", "痰液", "痰多", "黄痰", "白痰", "sputum", "phlegm"]),
+    ("symptom_hemoptysis",  ["咯血", "咳血", "痰中带血", "hemoptysis"]),
+    ("symptom_breathing",   ["呼吸困难", "气短", "气喘", "喘息", "憋气", "上不来气", "胸闷", "breath", "dyspnea", "wheeze", "shortness of breath"]),
+    ("symptom_nasal",       ["鼻塞", "流涕", "流鼻涕", "打喷嚏", "鼻涕", "鼻炎", "nasal", "congestion", "sneeze", "runny nose"]),
+    # --- 心血管 ---
+    ("symptom_palpitation", ["心悸", "心慌", "心跳快", "心跳", "心砰砰", "palpitation"]),
+    ("symptom_cyanosis",    ["发绀", "嘴唇发紫", "指甲发紫", "cyanosis"]),
+    # --- 消化系统 ---
+    ("symptom_nausea",      ["恶心", "想吐", "反胃", "nausea"]),
+    ("symptom_vomit",       ["呕吐", "吐", "吐了", "干呕", "vomit", "vomiting"]),
+    ("symptom_diarrhea",    ["腹泻", "拉肚子", "拉稀", "稀便", "水样便", "水便", "diarrhea", "loose stool"]),
+    ("symptom_constipation", ["便秘", "大便干", "大便困难", "排便困难", "拉不出", "constipation"]),
+    ("symptom_hematochezia", ["便血", "黑便", "大便带血", "柏油便", "脓血便", "hematochezia", "melena", "bloody stool"]),
+    ("symptom_jaundice",    ["黄疸", "皮肤黄", "眼黄", "眼睛黄", "jaundice"]),
+    ("symptom_dysphagia",   ["吞咽困难", "吞咽痛", "噎", "咽不下", "dysphagia"]),
+    ("symptom_appetite",    ["食欲", "胃口", "进食", "厌食", "不想吃", "吃不下", "appetite", "anorexia"]),
+    ("symptom_bloating",    ["腹胀", "胀气", "肚子胀", "胃胀", "bloating", "distension"]),
+    # --- 泌尿系统 ---
+    ("symptom_urination",   ["排尿", "小便", "尿频", "尿急", "尿痛", "尿不尽", "少尿", "多尿", "血尿", "夜尿", "尿失禁", "尿", "urine", "urination", "dysuria", "hematuria"]),
+    # --- 神经系统 ---
+    ("symptom_dizziness",   ["头晕", "眩晕", "头昏", "天旋地转", "眼花", "dizziness", "vertigo"]),
+    ("symptom_syncope",     ["晕厥", "昏倒", "晕倒", "昏过去", "晕过去", "syncope", "fainting"]),
+    ("symptom_consciousness", ["昏迷", "神志不清", "意识模糊", "不省人事", "consciousness", "coma"]),
+    ("symptom_numbness",    ["麻木", "发麻", "麻痹", "numbness", "tingling"]),
+    ("symptom_convulsion",  ["抽搐", "惊厥", "抽筋", "痉挛", "convulsion", "seizure", "spasm"]),
+    # --- 睡眠与精神 ---
+    ("symptom_sleep",       ["睡眠", "失眠", "入睡困难", "多梦", "易醒", "睡不着", "嗜睡", "睡觉", "困倦", "sleep", "insomnia", "drowsy"]),
+    ("symptom_mood",        ["焦虑", "抑郁", "烦躁", "易怒", "情绪", "紧张", "心情", "anxiety", "depression", "mood", "irritable"]),
+    # --- 皮肤 ---
+    ("symptom_rash",        ["皮疹", "疹子", "红斑", "丘疹", "水疱", "疱疹", "风团", "rash", "eruption"]),
+    ("symptom_itch",        ["瘙痒", "痒", "皮肤痒", "itch", "pruritus"]),
+    ("symptom_bleeding",    ["出血", "瘀斑", "紫癜", "瘀青", "淤青", "bleeding", "bruise", "purpura"]),
+    # --- 五官 ---
+    ("symptom_vision",      ["视力", "眼花", "视物模糊", "看不清", "失明", "复视", "vision", "blurred", "blind"]),
+    ("symptom_hearing",     ["听力", "耳鸣", "耳朵响", "听不清", "耳聋", "hearing", "tinnitus", "deaf"]),
+    ("symptom_hoarseness",  ["声音嘶哑", "声嘶", "嗓子哑", "失音", "hoarse", "hoarseness"]),
+    # --- 用药与过敏 ---
+    ("symptom_medication",  ["用药", "吃药", "服药", "药物", "medication", "drug", "medicine"]),
+    ("symptom_allergy",     ["过敏", "allergy", "allergic"]),
+    # --- 特殊人群 ---
+    ("symptom_menstruation", ["月经", "经期", "痛经", "闭经", "例假", "period", "menstruation", "dysmenorrhea"]),
+    ("symptom_pregnancy",   ["怀孕", "妊娠", "孕期", "pregnancy", "pregnant"]),
+    ("symptom_development", ["发育", "喂养", "接种", "疫苗", "长高", "development", "vaccine", "feeding"]),
 ]
 
 
