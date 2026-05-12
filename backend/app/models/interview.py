@@ -136,6 +136,28 @@ def _fingerprint(text: str) -> str:
     return hashlib.sha256(clean.encode('utf-8')).hexdigest()[:12]
 
 
+def _extract_phase_key(question_id: str) -> str:
+    """Extract a stable clinical phase key from a question_id.
+
+    Maps question_id prefixes to clinical dimensions.  Examples:
+      hpi_onset_001 → hpi_onset    pmh_allergy → pmh_allergy
+      adv_dehydration_001 → adv_dehydration    cq_5 → cq_5
+    """
+    known_prefixes = ("hpi_", "pmh_", "ps_", "fh_", "med_")
+    for prefix in known_prefixes:
+        if question_id.startswith(prefix):
+            parts = question_id.split("_")
+            if len(parts) >= 2:
+                return f"{parts[0]}_{parts[1]}"
+            return question_id
+    if question_id.startswith("adv_"):
+        parts = question_id.split("_", 2)
+        if len(parts) >= 3:
+            return f"adv_{parts[1]}"
+        return question_id
+    return question_id
+
+
 # ---------------------------------------------------------------------------
 # Differential Diagnosis Models
 # ---------------------------------------------------------------------------
@@ -215,6 +237,8 @@ class InterviewState:
     phase: str = "interviewing"      # interviewing | diagnosing | followup | completed
     # Content fingerprint dedup: short hashes of normalized question texts
     asked_question_fingerprints: list[str] = field(default_factory=list)
+    # Phase-level dedup: maps question_id → clinical phase key (e.g. hpi_onset)
+    question_phase_keys: dict[str, str] = field(default_factory=dict)
 
     # Internal keys for storing differential diagnosis info in collected_info (DB compatibility)
     _DIFF_KEY = "__differential_diagnoses__"
@@ -239,6 +263,7 @@ class InterviewState:
             "user_ended": self.user_ended,
             "phase": self.phase,
             "asked_question_fingerprints": self.asked_question_fingerprints,
+            "question_phase_keys": self.question_phase_keys,
         }
 
     @classmethod
@@ -261,6 +286,7 @@ class InterviewState:
             user_ended=data.get("user_ended", False),
             phase=data.get("phase", "interviewing"),
             asked_question_fingerprints=data.get("asked_question_fingerprints", []),
+            question_phase_keys=data.get("question_phase_keys", {}),
         )
 
     # ---- Differential diagnosis helpers (store in collected_info for compatibility) ----

@@ -19,6 +19,7 @@ from app.models.interview import (
     PHASE_ORDER,
     _extract_json,
     _fingerprint,
+    _extract_phase_key,
 )
 from app.services.llm import LLMService
 
@@ -292,13 +293,21 @@ class InterviewOrchestrator:
         all_questions = track1_questions + track2_questions
         deduped = self._deduplicate(all_questions, state)
 
+        filtered_out: set[str] = set()
         for q in deduped:
-            if (q.type == "multi_choice" and (not q.options or len(q.options) < 2)) or (q.type == "text" and q.options == []):
+            if q.type in ("multi_choice", "choice") and (not q.options or len(q.options) < 2):
                 opts = await self._complete_options(q)
                 if opts:
                     q.options = opts
-                    if len(opts) >= 2:
-                        q.type = "multi_choice"
+                    q.type = "multi_choice"
+                elif q.type == "choice" and not q.options:
+                    self.logger.warning("[ORCH] filtering choice question with empty options: %s", q.question_id)
+                    filtered_out.add(q.question_id)
+                    continue
+            if q.type == "multi_choice" and q.options and "以上都没有" not in q.options:
+                q.options = list(q.options) + ["以上都没有"]
+        if filtered_out:
+            deduped = [q for q in deduped if q.question_id not in filtered_out]
 
         # Phase 4: Decision logic
         action = "ask"
@@ -316,6 +325,8 @@ class InterviewOrchestrator:
             fp = _fingerprint(q.question)
             if fp not in state.asked_question_fingerprints:
                 state.asked_question_fingerprints.append(fp)
+            pk = _extract_phase_key(q.question_id)
+            state.question_phase_keys[q.question_id] = pk
 
         for q in deduped:
             state.current_question_id = q.question_id
@@ -397,25 +408,19 @@ class InterviewOrchestrator:
     @staticmethod
     def _deduplicate(questions: list[QuestionTemplate], state: InterviewState) -> list[QuestionTemplate]:
         seen_ids = set(state.asked_questions)
-        seen_phases: set[str] = set()
         seen_fingerprints: set[str] = set(state.asked_question_fingerprints)
-        for k, v in state.collected_info.items():
-            if not k.startswith("__") and v:
-                seen_phases.add(k)
+        seen_phase_keys: set[str] = set(state.question_phase_keys.values())
         result = []
         for q in questions:
             qid = q.question_id
-            phase = q.phase or ""
             fp = _fingerprint(q.question)
-            # Three-layer dedup: ID match, phase match, content fingerprint match
+            pk = _extract_phase_key(qid)
             if qid in seen_ids:
-                continue
-            if phase and phase in seen_phases:
                 continue
             if fp in seen_fingerprints:
                 continue
+            if pk in seen_phase_keys:
+                continue
             seen_ids.add(qid)
-            if phase:
-                seen_phases.add(phase)
             result.append(q)
         return result[:2]
