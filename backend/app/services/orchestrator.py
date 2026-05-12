@@ -18,6 +18,7 @@ from app.models.interview import (
     DifferentialHypothesis,
     PHASE_ORDER,
     _extract_json,
+    _fingerprint,
 )
 from app.services.llm import LLMService
 
@@ -312,6 +313,11 @@ class InterviewOrchestrator:
             self.logger.info("[ORCH] No questions generated, using LLM continuity question")
 
         for q in deduped:
+            fp = _fingerprint(q.question)
+            if fp not in state.asked_question_fingerprints:
+                state.asked_question_fingerprints.append(fp)
+
+        for q in deduped:
             state.current_question_id = q.question_id
         state.pending_question_ids = [q.question_id for q in deduped]
 
@@ -392,6 +398,7 @@ class InterviewOrchestrator:
     def _deduplicate(questions: list[QuestionTemplate], state: InterviewState) -> list[QuestionTemplate]:
         seen_ids = set(state.asked_questions)
         seen_phases: set[str] = set()
+        seen_fingerprints: set[str] = set(state.asked_question_fingerprints)
         for k, v in state.collected_info.items():
             if not k.startswith("__") and v:
                 seen_phases.add(k)
@@ -399,7 +406,13 @@ class InterviewOrchestrator:
         for q in questions:
             qid = q.question_id
             phase = q.phase or ""
-            if qid in seen_ids or (phase and phase in seen_phases):
+            fp = _fingerprint(q.question)
+            # Three-layer dedup: ID match, phase match, content fingerprint match
+            if qid in seen_ids:
+                continue
+            if phase and phase in seen_phases:
+                continue
+            if fp in seen_fingerprints:
                 continue
             seen_ids.add(qid)
             if phase:

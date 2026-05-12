@@ -11,6 +11,7 @@ DESIGN PRINCIPLES:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -121,6 +122,21 @@ PHASE_ORDER: list[InterviewPhase] = [
 
 
 # ---------------------------------------------------------------------------
+# Content Fingerprint for Dedup
+# ---------------------------------------------------------------------------
+
+def _fingerprint(text: str) -> str:
+    """Normalized content fingerprint for duplicate question detection.
+
+    Strips punctuation, collapses whitespace, lowercases, then SHA256 hashes.
+    Two questions with the same normalized text produce the same fingerprint.
+    """
+    clean = re.sub(r'[^\u4e00-\u9fff\w]', '', text.lower())
+    clean = re.sub(r'\s+', '', clean)
+    return hashlib.sha256(clean.encode('utf-8')).hexdigest()[:12]
+
+
+# ---------------------------------------------------------------------------
 # Differential Diagnosis Models
 # ---------------------------------------------------------------------------
 
@@ -197,6 +213,8 @@ class InterviewState:
     user_ended: bool = False
     # Interview phase tracking
     phase: str = "interviewing"      # interviewing | diagnosing | followup | completed
+    # Content fingerprint dedup: short hashes of normalized question texts
+    asked_question_fingerprints: list[str] = field(default_factory=list)
 
     # Internal keys for storing differential diagnosis info in collected_info (DB compatibility)
     _DIFF_KEY = "__differential_diagnoses__"
@@ -220,6 +238,7 @@ class InterviewState:
             "pending_question_ids": self.pending_question_ids,
             "user_ended": self.user_ended,
             "phase": self.phase,
+            "asked_question_fingerprints": self.asked_question_fingerprints,
         }
 
     @classmethod
@@ -241,6 +260,7 @@ class InterviewState:
             pending_question_ids=data.get("pending_question_ids", []),
             user_ended=data.get("user_ended", False),
             phase=data.get("phase", "interviewing"),
+            asked_question_fingerprints=data.get("asked_question_fingerprints", []),
         )
 
     # ---- Differential diagnosis helpers (store in collected_info for compatibility) ----
