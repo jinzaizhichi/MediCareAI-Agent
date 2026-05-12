@@ -34,7 +34,7 @@ TRACK1_SYSTEM_PROMPT = """你是病史采集专家。根据患者主诉和已收
 职责：
 - 覆盖未问的临床维度：现病史(起病/症状特点/伴随/演变/诊疗经过)、既往史、个人史(含一般情况)、家族史、用药史
 - 特殊人群：儿童(喂养/发育/接种)、女性(月经/婚育)——仅匹配时触发
-- 问题口语化，用"您"开头。一律使用 choice（单选）或 multi_choice（多选），text 仅限患者自由描述无法枚举的答案。choice 和 multi_choice 必须带2-6个具体选项
+- 问题口语化，用"您"开头。一律使用 choice 或 multi_choice，选项后附加 "以上都没有" 供患者否定（如慢性病史、过敏史等筛查题）
 - 每轮1-2个问题，不重复已问维度
 - 已收集的信息对应的维度不要再问
 
@@ -309,7 +309,7 @@ class InterviewOrchestrator:
     async def _complete_options(self, q: QuestionTemplate) -> list[str]:
         try:
             r = await self.track1.llm.chat(
-                messages=[{"role": "user", "content": f'问题：{q.question}\n针对此问题，列出3-6个具体选项。只返回JSON数组：["选项1","选项2","选项3"]'}],
+                messages=[{"role": "user", "content": f'问题：{q.question}\n针对此问题，列出3-6个具体选项。如果患者可能\"都没有\"，最后加一个\"以上都没有\"选项。只返回JSON数组'}],
                 system_prompt="你是临床选项生成助手。只返回JSON数组。", max_tokens=256)
             data = _extract_json(r.content)
             if isinstance(data, list):
