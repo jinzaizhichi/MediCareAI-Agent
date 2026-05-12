@@ -34,27 +34,25 @@ TRACK1_SYSTEM_PROMPT = """你是病史采集专家。根据患者主诉和已收
 职责：
 - 覆盖未问的临床维度：现病史(起病/症状特点/伴随/演变/诊疗经过)、既往史、个人史(含一般情况)、家族史、用药史
 - 特殊人群：儿童(喂养/发育/接种)、女性(月经/婚育)——仅匹配时触发
-- 问题口语化，用"您"开头，优先选择题。多症状/多表现确认用 multi_choice 类型，必须带 options 数组
+- 问题口语化，用"您"开头，优先选择题。需要确认多个症状/表现时用 multi_choice，必须包含3-5个具体临床选项（如"胀痛""刺痛""酸胀"），不允许留空
 - 每轮1-2个问题，不重复已问维度
 - 已收集的信息对应的维度不要再问
 
 只返回JSON（```json```包裹）。"""
 
-TRACK1_DECISION_SCHEMA = """返回JSON：
+TRACK1_DECISION_SCHEMA = """返回JSON（示例，请生成真实临床选项）：
 {
   "action": "ask",
   "basic_module": [
-    {"question_id":"hpi_xxx|pmh_xxx|ps_xxx","question":"口语化问题","type":"choice|multi_choice|text","options":["选项1","选项2","选项3"],"hint":"提示","allow_skip":true,"phase":"临床维度","reason":"为何问"},
-    {"question_id":"adv_dehydration","question":"有无以下脱水表现？","type":"multi_choice","options":["哭时无泪","尿量明显减少","眼窝凹陷","口唇干燥","精神萎靡"],"hint":"可多选","allow_skip":true,"phase":"现病史-伴随","reason":"评估脱水程度"}
+    {"question_id":"hpi_quality","question":"您颈肩部的疼痛是什么样的感觉？","type":"multi_choice","options":["酸痛","刺痛","胀痛","麻木","僵硬"],"hint":"可多选","allow_skip":true,"phase":"现病史-症状特点","reason":"明确疼痛性质"},
+    {"question_id":"hpi_severity","question":"疼痛程度如何？","type":"choice","options":["轻微，不影响活动","中等，转头受限","剧烈，完全无法活动"],"hint":"","allow_skip":false,"phase":"现病史-严重程度","reason":"评估严重程度"}
   ],
-  "differential_diagnoses": [
-    {"diagnosis":"疑似疾病","confidence":"high|medium|low","key_features":["特征"],"reason":"理由"}
-  ],
+  "differential_diagnoses": [{"diagnosis":"颈肩筋膜炎","confidence":"medium","key_features":["晨起加重","活动后缓解"],"reason":"与主诉匹配"}],
   "red_flags": [],
-  "covered_dimensions": ["已覆盖维度"],
-  "reasoning": "临床推理"
+  "covered_dimensions": ["hpi_quality"],
+  "reasoning": "基于症状特点推断"
 }
-multi_choice 必须带 options 数组（≥2个选项）。"""
+重要：multi_choice 的 options 必须是该问题的具体答案选项（≥2个），不允许使用占位符。"""
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +151,7 @@ class Track1Agent:
         pending = [p.value for p in PHASE_ORDER if p.value not in state.collected_info]
         lines.append(f"\n## 未覆盖维度\n{', '.join(pending[:8])}")
         lines.append(f"\n## 已问数量\n{len(state.asked_questions)}")
-        lines.append("\n## 指令\n只生成basic_module，每轮1-2个问题，优先问未覆盖维度。不重复已收集信息对应的维度。")
+        lines.append("\n## 指令\n只生成basic_module，每轮1-2个问题，优先问未覆盖维度。不重复已收集信息对应的维度。每个choice/multi_choice必须给出具体选项（如疼痛性质的选项是酸痛/刺痛/胀痛/麻木/灼热，不是\"选项1\"）。")
         lines.append("\n" + TRACK1_DECISION_SCHEMA)
         return "\n".join(lines)
 
@@ -286,12 +284,8 @@ class InterviewOrchestrator:
 
         for q in deduped:
             if q.type == "multi_choice" and (not q.options or len(q.options) < 2):
-                generated = await self._generate_options(q)
-                if generated:
-                    q.options = generated
-                else:
-                    q.type = "choice"
-                    q.options = ["是", "否"]
+                q.type = "text"
+                q.options = []
 
         # Phase 4: Decision logic
         action = "ask"
@@ -312,41 +306,22 @@ class InterviewOrchestrator:
         return deduped, state, [], action, reasoning
 
     async def _continuity_question(self, state: InterviewState) -> QuestionTemplate:
-        # No LLM → LLM light → double fallback
-        hard_fallback = QuestionTemplate(
-            question_id=f"cq_{len(state.asked_questions)}",
-            question="请继续描述您的症状，有什么新的变化或补充吗？",
-            type="text", hint="没有变化可以说'没有'", allow_skip=True,
-            phase="现病史", colloquial_phase="症状更新",
-        )
         try:
             r = await self.track1.llm.chat(
                 messages=[{"role": "user", "content": f'患者主诉：{state.chief_complaint}\n已问{len(state.asked_questions)}个问题。请生成1个简短的追问。只返回JSON：{{"q":"问题"}}'}],
                 system_prompt="你是问诊助手。只返回JSON。", max_tokens=128,
             )
             q_text = _extract_json(r.content).get("q", "")
-            if not q_text:
-                return hard_fallback
-            return QuestionTemplate(
-                question_id=f"cq_{len(state.asked_questions)}",
-                question=q_text, type="text", hint="请自由描述",
-                allow_skip=True, phase="现病史", colloquial_phase="症状更新",
-            )
-        except Exception:
-            return hard_fallback
-
-    async def _generate_options(self, q: QuestionTemplate) -> list[str]:
-        try:
-            r = await self.track1.llm.chat(
-                messages=[{"role": "user", "content": f'问题：{q.question}\n\n为此问题生成3-5个选项，用中文逗号分隔。只返回JSON：{{"options":["选项1","选项2","选项3"]}}'}],
-                system_prompt="你是选项生成助手。只返回JSON。", max_tokens=256)
-            data = _extract_json(r.content)
-            opts = data.get("options", [])
-            if isinstance(opts, list) and len(opts) >= 2:
-                return opts[:6]
+            if q_text:
+                return QuestionTemplate(question_id=f"cq_{len(state.asked_questions)}",
+                    question=q_text, type="text", hint="请自由描述",
+                    allow_skip=True, phase="现病史", colloquial_phase="症状更新")
         except Exception:
             pass
-        return []
+        return QuestionTemplate(question_id=f"cq_{len(state.asked_questions)}",
+            question=f"关于{state.chief_complaint}，请再多说一些细节好吗？",
+            type="text", hint="请自由描述", allow_skip=True,
+            phase="现病史", colloquial_phase="症状更新")
 
     async def _run_search(self, chief_complaint: str, state: InterviewState) -> str:
         try:
