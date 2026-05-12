@@ -188,6 +188,20 @@ export default function InterviewQuestion({ question, onAnswer, disabled = false
                   }}
                 />
               ))}
+              <Chip
+                label="以上都没有"
+                clickable
+                disabled={disabled || answered}
+                onClick={() => { onAnswer(question.question_id, '以上都没有'); return; }}
+                variant="outlined"
+                sx={{
+                  bgcolor: 'transparent',
+                  color: '#8B7355',
+                  border: `1.5px dashed ${phaseStyle.border}`,
+                  fontWeight: 500, fontSize: 13, px: 0.5,
+                  '&:hover': { bgcolor: phaseStyle.bg, borderColor: phaseStyle.border },
+                }}
+              />
             </Box>
             <Button variant="contained" size="small" onClick={handleMultiSubmit}
               disabled={disabled || answered || selectedOptions.size === 0}
