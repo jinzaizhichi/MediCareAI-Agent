@@ -304,6 +304,14 @@ class InterviewOrchestrator:
                     self.logger.warning("[ORCH] filtering choice question with empty options: %s", q.question_id)
                     filtered_out.add(q.question_id)
                     continue
+                elif q.type == "choice" and len(q.options) < 2:
+                    self.logger.warning("[ORCH] filtering choice question with insufficient options (%d): %s", len(q.options), q.question_id)
+                    filtered_out.add(q.question_id)
+                    continue
+                elif q.type == "multi_choice" and len(q.options) < 2:
+                    self.logger.warning("[ORCH] filtering multi_choice question with insufficient options (%d): %s", len(q.options), q.question_id)
+                    filtered_out.add(q.question_id)
+                    continue
             if q.type == "multi_choice" and q.options and "以上都没有" not in q.options:
                 q.options = list(q.options) + ["以上都没有"]
         if filtered_out:
