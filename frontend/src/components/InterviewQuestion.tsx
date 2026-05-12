@@ -167,7 +167,38 @@ export default function InterviewQuestion({ question, onAnswer, disabled = false
           </Box>
         )}
         {question.type === 'multi_choice' && question.options && question.options.length > 0 && (
-
+          <Box>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 1.5 }}>
+              {question.options.map((option) => (
+                <Chip
+                  key={option}
+                  label={option}
+                  clickable
+                  disabled={disabled || answered}
+                  onClick={() => toggleMultiOption(option)}
+                  variant={selectedOptions.has(option) ? 'filled' : 'outlined'}
+                  sx={{
+                    bgcolor: selectedOptions.has(option) ? phaseStyle.border : '#FFFFFF',
+                    color: selectedOptions.has(option) ? '#FFFFFF' : '#3E2723',
+                    border: `1.5px solid ${phaseStyle.border}`,
+                    fontWeight: 500, fontSize: 14, px: 0.5,
+                    '&:hover': { bgcolor: selectedOptions.has(option) ? phaseStyle.border : phaseStyle.bg,
+                      borderColor: phaseStyle.border, transform: 'translateY(-1px)' },
+                    transition: 'all 0.2s ease',
+                  }}
+                />
+              ))}
+            </Box>
+            <Button variant="contained" size="small" onClick={handleMultiSubmit}
+              disabled={disabled || answered || selectedOptions.size === 0}
+              sx={{ borderRadius: 2, bgcolor: phaseStyle.border,
+                '&:hover': { bgcolor: phaseStyle.border, opacity: 0.9 },
+                '&.Mui-disabled': { bgcolor: '#F5E6D3', color: '#8B7355' },
+                textTransform: 'none', fontWeight: 600 }}>
+              确认选择 ({selectedOptions.size})
+            </Button>
+          </Box>
+        )}
         {question.type === 'text' && (
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
             <TextField
