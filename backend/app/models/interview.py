@@ -167,7 +167,7 @@ _SYMPTOM_KEYWORDS: list[tuple[str, list[str]]] = [
     ("symptom_chills",      ["怕冷", "畏寒", "恶寒", "发冷", "寒战", "发抖", "chills", "shiver"]),
     ("symptom_sweat",       ["出汗", "盗汗", "自汗", "多汗", "冷汗", "虚汗", "sweat", "night sweat"]),
     ("symptom_fatigue",     ["乏力", "疲劳", "倦怠", "无力", "没力气", "没精神", "没劲", "累", "精神差", "fatigue", "weakness", "lethargy"]),
-    ("symptom_weight",      ["消瘦", "变瘦", "体重下降", "体重减轻", "体重增加", "变胖", "肥胖", "weight", "obesity"]),
+    ("symptom_weight",      ["消瘦", "变瘦", "体重下降", "体重减轻", "体重增加", "变胖", "肥胖", "体重", "weight", "obesity"]),
     ("symptom_edema",       ["水肿", "浮肿", "肿", "肿胀", "edema", "swelling"]),
     # --- 疼痛：按部位 (各自独立，避免 false positive) ---
     ("symptom_headache",    ["头痛", "头疼", "偏头痛", "headache", "migraine"]),
@@ -190,9 +190,9 @@ _SYMPTOM_KEYWORDS: list[tuple[str, list[str]]] = [
     ("symptom_vomit",       ["呕吐", "吐", "吐了", "干呕", "vomit", "vomiting"]),
     ("symptom_diarrhea",    ["腹泻", "拉肚子", "拉稀", "稀便", "水样便", "水便", "diarrhea", "loose stool"]),
     ("symptom_constipation", ["便秘", "大便干", "大便困难", "排便困难", "拉不出", "constipation"]),
-    ("symptom_hematochezia", ["便血", "黑便", "大便带血", "便中带血", "柏油便", "脓血便", "hematochezia", "melena", "bloody stool"]),
+    ("symptom_hematochezia", ["便血", "黑便", "大便带血", "便中带血", "拉血", "大便有血", "柏油便", "脓血便", "hematochezia", "melena", "bloody stool"]),
     ("symptom_jaundice",    ["黄疸", "皮肤黄", "眼黄", "眼睛黄", "jaundice"]),
-    ("symptom_dysphagia",   ["吞咽困难", "吞咽痛", "噎", "咽不下", "dysphagia"]),
+    ("symptom_dysphagia",   ["吞咽困难", "吞咽痛", "吞咽", "噎", "咽不下", "咽东西困难", "dysphagia"]),
     ("symptom_appetite",    ["食欲", "胃口", "进食", "厌食", "不想吃", "吃不下", "appetite", "anorexia"]),
     ("symptom_bloating",    ["腹胀", "胀气", "肚子胀", "胃胀", "bloating", "distension"]),
     # --- 泌尿系统 ---
