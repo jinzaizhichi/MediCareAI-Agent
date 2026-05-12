@@ -366,7 +366,7 @@ OUTPUT (search query only):"""
                     messages=messages,
                     tools=tool_schemas,
                     system_prompt=self.SYSTEM_PROMPT,
-                    max_tokens=2048,
+                    max_tokens=4096,
                     tool_choice="auto",
                 )
 
@@ -437,7 +437,7 @@ OUTPUT (search query only):"""
                     structured = await llm.generate_structured(
                         messages=force_messages,
                         output_schema=DiagnosisReport,
-                        max_tokens=2048,
+                        max_tokens=4096,
                     )
                 except Exception:
                     pass

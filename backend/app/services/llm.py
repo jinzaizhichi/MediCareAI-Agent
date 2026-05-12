@@ -426,12 +426,13 @@ class LLMService:
                 stream=False,
             )
         except Exception:
-            # Fallback: standard chat + manual parsing
+            # Fallback: standard chat + manual parsing, thinking disabled
             response = await client.chat.completions.create(
                 model=model or default_model,
                 messages=msgs,  # type: ignore[arg-type]
                 max_tokens=max_tokens,
                 stream=False,
+                extra_body={"thinking": {"type": "disabled"}},
             )
 
         content = response.choices[0].message.content or "{}"
