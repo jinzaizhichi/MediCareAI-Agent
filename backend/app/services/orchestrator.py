@@ -142,16 +142,25 @@ class Track1Agent:
         lines = [f"## 患者主诉\n{state.chief_complaint or '未知'}"]
         if patient_history:
             lines.append(f"\n## 既往史\n{patient_history[:500]}")
+
+        # Show full Q&A history so LLM knows exactly what was covered
         if state.collected_info:
-            lines.append("\n## 已收集信息(最近)")
-            recent = list(state.collected_info.items())
-            for k, v in recent[-8:]:
-                if not k.startswith("__"):
-                    lines.append(f"- {k}: {str(v)[:100]}")
+            lines.append("\n## 已问过且已答过（不要再重复问这些内容）")
+            for k, v in list(state.collected_info.items())[-12:]:
+                if not k.startswith("__") and v:
+                    lines.append(f"- {k}: {str(v)[:120]}")
+
         pending = [p.value for p in PHASE_ORDER if p.value not in state.collected_info]
-        lines.append(f"\n## 未覆盖维度\n{', '.join(pending[:8])}")
+        lines.append(f"\n## 还未问的维度\n{', '.join(pending[:8])}")
         lines.append(f"\n## 已问数量\n{len(state.asked_questions)}")
-        lines.append("\n## 指令\n只生成basic_module，每轮1-2个问题，优先问未覆盖维度。不重复已收集信息对应的维度。每个choice/multi_choice必须给出具体选项（如疼痛性质的选项是酸痛/刺痛/胀痛/麻木/灼热，不是\"选项1\"）。")
+
+        # Show raw answers for dedup context
+        if state.raw_answers:
+            lines.append("\n## 患者原始回答")
+            for qid, ans in list(state.raw_answers.items())[-6:]:
+                lines.append(f"- {qid}: {ans[:80]}")
+
+        lines.append("\n## 指令\n只生成basic_module，每轮1-2个问题。只问\"还未问的维度\"。上面\"已问过且已答过\"的内容绝对不要再问。")
         lines.append("\n" + TRACK1_DECISION_SCHEMA)
         return "\n".join(lines)
 
@@ -211,10 +220,11 @@ class Track2Agent:
             for d in diffs[:5]:
                 lines.append(f"- {d.diagnosis} (置信度:{d.confidence}) {d.key_features}")
         if state.collected_info:
-            lines.append("\n## 已收集信息键")
-            collected_keys = [k for k in state.collected_info if not k.startswith("__")]
-            lines.append(", ".join(collected_keys[-8:]))
-        lines.append("\n## 指令\n只生成advanced_module，0-2个问题。筛查题附加\"以上都没有\"选项。不重复轨道一已覆盖内容。")
+            lines.append("\n## 已问过且已答过（不要再重复）")
+            for k, v in list(state.collected_info.items())[-8:]:
+                if not k.startswith("__") and v:
+                    lines.append(f"- {k}: {str(v)[:100]}")
+        lines.append("\n## 指令\n只生成advanced_module，0-2个问题。上面已答过的不再问。把搜索结果中发现的证据缺口转化为新问题。")
         lines.append("\n" + TRACK2_DECISION_SCHEMA)
         return "\n".join(lines)
 
