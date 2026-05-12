@@ -351,15 +351,22 @@ class InterviewOrchestrator:
                 self.logger.warning("[ORCH] FORCING SYNTHESIZE after %d consecutive continuity fallbacks", state.fallback_count)
                 return [], state, [], action, reasoning
             ctx_q = await self._continuity_question(state)
-            # Re-check continuity question against dedup to prevent repeats
-            if self._deduplicate([ctx_q], state):
-                deduped = [ctx_q]
-                state.fallback_count += 1
-                self.logger.info("[ORCH] No questions generated, using LLM continuity question (fallback #%d)", state.fallback_count)
-            else:
+            # Structural dedup check
+            if not self._deduplicate([ctx_q], state):
                 action = "synthesize"
                 state.is_sufficient = True
                 self.logger.warning("[ORCH] Continuity question was duplicate, forcing synthesize")
+                return [], state, [], action, reasoning
+            # Semantic dedup check
+            sem_check = await self._semantic_dedup([ctx_q], state)
+            if not sem_check:
+                action = "synthesize"
+                state.is_sufficient = True
+                self.logger.warning("[ORCH] Continuity question semantically duplicate, forcing synthesize")
+                return [], state, [], action, reasoning
+            deduped = sem_check
+            state.fallback_count += 1
+            self.logger.info("[ORCH] No questions generated, using LLM continuity question (fallback #%d)", state.fallback_count)
 
         for q in deduped:
             fp = _fingerprint(q.question)
