@@ -20,7 +20,6 @@ from app.models.interview import (
     _extract_json,
     _fingerprint,
     _extract_phase_key,
-    _extract_semantic_keys,
 )
 from app.services.llm import LLMService
 
@@ -330,15 +329,15 @@ class InterviewOrchestrator:
             deduped = [ctx_q]
             self.logger.info("[ORCH] No questions generated, using LLM continuity question")
 
+        deduped = await self._semantic_dedup(deduped, state)
+
         for q in deduped:
             fp = _fingerprint(q.question)
             if fp not in state.asked_question_fingerprints:
                 state.asked_question_fingerprints.append(fp)
             pk = _extract_phase_key(q.question_id)
             state.question_phase_keys[q.question_id] = pk
-            for sk in _extract_semantic_keys(q.question):
-                if sk not in state.semantic_phase_keys:
-                    state.semantic_phase_keys.append(sk)
+            state.question_texts[q.question_id] = q.question
 
         for q in deduped:
             state.current_question_id = q.question_id
@@ -417,25 +416,72 @@ class InterviewOrchestrator:
             self.logger.error(f"[ORCH] Search failed: {e}")
             return ""
 
+    async def _semantic_dedup(
+        self, candidates: list[QuestionTemplate], state: InterviewState
+    ) -> list[QuestionTemplate]:
+        if not candidates or not state.question_texts:
+            return candidates
+        asked_list = [
+            state.question_texts[qid]
+            for qid in state.asked_questions[-15:]
+            if qid in state.question_texts
+        ]
+        if not asked_list:
+            return candidates
+        candidate_texts = [q.question for q in candidates]
+        prompt = (
+            "判断每个候选问题是否与下面任何一个已问过的问题语义重复"
+            "（问的是同一件事，只是换了一种说法）。\n\n"
+            f"已问过的问题：\n"
+            + "\n".join(f"{i+1}. {t}" for i, t in enumerate(asked_list))
+            + f"\n\n候选问题：\n"
+            + "\n".join(f"{j+1}. {t}" for j, t in enumerate(candidate_texts))
+            + "\n\n返回JSON: {\"keep\": [索引], \"drop\": [索引], \"reasons\": {\"索引\": \"为什么重复或为什么保留\"}}"
+            + "\n索引从1开始。keep 是应该保留的全新问题索引，drop 是语义重复应丢弃的索引。"
+        )
+        try:
+            response = await self.track1.llm.chat(
+                messages=[{"role": "user", "content": prompt}],
+                system_prompt="你是医疗AI去重助手。只返回JSON，不做其他输出。",
+                max_tokens=256,
+            )
+            data = _extract_json(response.content)
+            if not isinstance(data, dict):
+                return candidates
+            drop_indices = {
+                int(i) - 1
+                for i in (data.get("drop") or [])
+                if isinstance(i, (int, float))
+            }
+            result = [
+                q for idx, q in enumerate(candidates) if idx not in drop_indices
+            ]
+            if len(result) < len(candidates):
+                self.logger.info(
+                    "[ORCH] semantic_dedup filtered %d/%d questions",
+                    len(candidates) - len(result),
+                    len(candidates),
+                )
+            return result
+        except Exception as e:
+            self.logger.warning("[ORCH] semantic_dedup failed, passing all: %s", e)
+            return candidates
+
     @staticmethod
     def _deduplicate(questions: list[QuestionTemplate], state: InterviewState) -> list[QuestionTemplate]:
         seen_ids = set(state.asked_questions)
         seen_fingerprints: set[str] = set(state.asked_question_fingerprints)
         seen_phase_keys: set[str] = set(state.question_phase_keys.values())
-        seen_semantic_keys: set[str] = set(state.semantic_phase_keys)
         result = []
         for q in questions:
             qid = q.question_id
             fp = _fingerprint(q.question)
             pk = _extract_phase_key(qid)
-            sk = _extract_semantic_keys(q.question)
             if qid in seen_ids:
                 continue
             if fp in seen_fingerprints:
                 continue
             if pk in seen_phase_keys:
-                continue
-            if any(k in seen_semantic_keys for k in sk):
                 continue
             seen_ids.add(qid)
             result.append(q)
