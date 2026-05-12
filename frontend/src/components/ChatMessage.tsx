@@ -6,7 +6,6 @@ import remarkGfm from 'remark-gfm';
 import type { ChatMessageItem } from '../types/agent';
 import DiagnosisCard from './DiagnosisCard';
 import AgentWorkflow from './AgentWorkflow';
-import InterviewQuestion from './InterviewQuestion';
 
 interface Props { message: ChatMessageItem; onInterviewAnswer?: (questionId: string, answer: string) => void; }
 
@@ -105,17 +104,10 @@ export default function ChatMessage({ message, onInterviewAnswer }: Props) {
           </Paper>
         )}
 
-        {isInterviewQ && onInterviewAnswer && (
-          <>
-            {(message.interviewQuestions || (message.interviewQuestion ? [message.interviewQuestion] : [])).map((iq) => (
-              <InterviewQuestion
-                key={iq.question_id}
-                question={iq}
-                onAnswer={onInterviewAnswer}
-                disabled={!message.isStreaming}
-              />
-            ))}
-          </>
+        {isInterviewQ && (
+          <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, fontStyle: 'italic' }}>
+            📋 问诊卡已移至下方待答面板
+          </Typography>
         )}
 
         {isAgent && message.structured && <DiagnosisCard report={message.structured} />}

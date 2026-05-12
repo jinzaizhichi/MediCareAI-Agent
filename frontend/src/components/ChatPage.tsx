@@ -17,6 +17,7 @@ import Sidebar from './Sidebar';
 import ChatMessage from './ChatMessage';
 import ChatInput from './ChatInput';
 import GuestBanner from './GuestBanner';
+import PendingCardsPanel from './PendingCardsPanel';
 
 
 const QUICK_REPLIES = [
@@ -38,6 +39,7 @@ export default function ChatPage() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [guestStatus, setGuestStatus] = useState<GuestStatus | null>(null);
   const [showScrollDown, setShowScrollDown] = useState(false);
+  const [answeredIds, setAnsweredIds] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const didInit = useRef(false);
@@ -344,6 +346,8 @@ export default function ChatPage() {
       const pending = pendingSessionRef.current;
       if (!pending?.sessionId) return;
 
+      setAnsweredIds((prev) => new Set([...prev, questionId]));
+
       // Disable the previous agent message's interview question
       setMessages((prev) => {
         const idx = prev.findLastIndex((m) => m.role === 'agent' && (m.interviewQuestion?.question_id === questionId || m.interviewQuestions?.some(iq => iq.question_id === questionId)));
@@ -598,6 +602,12 @@ export default function ChatPage() {
           ))}
           <div ref={messagesEndRef} />
         </Box>
+
+        <PendingCardsPanel
+          messages={messages}
+          answeredIds={answeredIds}
+          onAnswer={handleInterviewAnswer}
+        />
 
         {showScrollDown && (
           <Fab
