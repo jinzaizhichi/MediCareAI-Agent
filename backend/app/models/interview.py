@@ -171,9 +171,9 @@ _SYMPTOM_KEYWORDS: list[tuple[str, list[str]]] = [
     ("symptom_edema",       ["水肿", "浮肿", "肿", "肿胀", "edema", "swelling"]),
     # --- 疼痛：按部位 (各自独立，避免 false positive) ---
     ("symptom_headache",    ["头痛", "头疼", "偏头痛", "headache", "migraine"]),
-    ("symptom_chest_pain",  ["胸痛", "胸口痛", "心口痛", "胸疼", "chest pain"]),
+    ("symptom_chest_pain",  ["胸痛", "胸口痛", "心口痛", "胸口疼", "胸疼", "chest pain"]),
     ("symptom_abdominal_pain", ["腹痛", "肚子痛", "肚子疼", "胃痛", "胃疼", "小腹痛", "abdominal pain", "stomach pain", "stomachache"]),
-    ("symptom_back_pain",   ["腰背痛", "腰痛", "背痛", "腰疼", "背疼", "back pain", "low back pain"]),
+    ("symptom_back_pain",   ["腰背痛", "腰痛", "背痛", "腰酸", "腰疼", "背疼", "腰背酸", "back pain", "low back pain"]),
     ("symptom_joint_pain",  ["关节痛", "关节疼", "膝盖痛", "肩痛", "肩膀痛", "joint pain", "arthralgia"]),
     ("symptom_throat_pain", ["咽痛", "喉咙痛", "嗓子痛", "嗓子疼", "咽喉痛", "sore throat"]),
     # --- 呼吸系统 ---
@@ -190,7 +190,7 @@ _SYMPTOM_KEYWORDS: list[tuple[str, list[str]]] = [
     ("symptom_vomit",       ["呕吐", "吐", "吐了", "干呕", "vomit", "vomiting"]),
     ("symptom_diarrhea",    ["腹泻", "拉肚子", "拉稀", "稀便", "水样便", "水便", "diarrhea", "loose stool"]),
     ("symptom_constipation", ["便秘", "大便干", "大便困难", "排便困难", "拉不出", "constipation"]),
-    ("symptom_hematochezia", ["便血", "黑便", "大便带血", "柏油便", "脓血便", "hematochezia", "melena", "bloody stool"]),
+    ("symptom_hematochezia", ["便血", "黑便", "大便带血", "便中带血", "柏油便", "脓血便", "hematochezia", "melena", "bloody stool"]),
     ("symptom_jaundice",    ["黄疸", "皮肤黄", "眼黄", "眼睛黄", "jaundice"]),
     ("symptom_dysphagia",   ["吞咽困难", "吞咽痛", "噎", "咽不下", "dysphagia"]),
     ("symptom_appetite",    ["食欲", "胃口", "进食", "厌食", "不想吃", "吃不下", "appetite", "anorexia"]),
@@ -204,7 +204,7 @@ _SYMPTOM_KEYWORDS: list[tuple[str, list[str]]] = [
     ("symptom_numbness",    ["麻木", "发麻", "麻痹", "numbness", "tingling"]),
     ("symptom_convulsion",  ["抽搐", "惊厥", "抽筋", "痉挛", "convulsion", "seizure", "spasm"]),
     # --- 睡眠与精神 ---
-    ("symptom_sleep",       ["睡眠", "失眠", "入睡困难", "多梦", "易醒", "睡不着", "嗜睡", "睡觉", "困倦", "sleep", "insomnia", "drowsy"]),
+    ("symptom_sleep",       ["失眠", "入睡困难", "多梦", "易醒", "睡不着", "嗜睡", "sleep", "insomnia", "drowsy"]),
     ("symptom_mood",        ["焦虑", "抑郁", "烦躁", "易怒", "情绪", "紧张", "心情", "anxiety", "depression", "mood", "irritable"]),
     # --- 皮肤 ---
     ("symptom_rash",        ["皮疹", "疹子", "红斑", "丘疹", "水疱", "疱疹", "风团", "rash", "eruption"]),
