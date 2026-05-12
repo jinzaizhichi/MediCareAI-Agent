@@ -283,11 +283,12 @@ class InterviewOrchestrator:
         deduped = self._deduplicate(all_questions, state)
 
         for q in deduped:
-            if q.type == "multi_choice" and (not q.options or len(q.options) < 2):
+            if (q.type == "multi_choice" and (not q.options or len(q.options) < 2)) or (q.type == "text" and q.options == []):
                 opts = await self._complete_options(q)
                 if opts:
                     q.options = opts
-                else:
+                    q.type = "multi_choice" if len(opts) >= 2 else "choice"
+                elif q.type == "multi_choice":
                     q.type = "text"
                     q.options = []
 
