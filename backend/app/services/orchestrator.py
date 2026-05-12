@@ -284,8 +284,12 @@ class InterviewOrchestrator:
 
         for q in deduped:
             if q.type == "multi_choice" and (not q.options or len(q.options) < 2):
-                q.type = "text"
-                q.options = []
+                opts = await self._complete_options(q)
+                if opts:
+                    q.options = opts
+                else:
+                    q.type = "text"
+                    q.options = []
 
         # Phase 4: Decision logic
         action = "ask"
@@ -304,6 +308,22 @@ class InterviewOrchestrator:
         state.pending_question_ids = [q.question_id for q in deduped]
 
         return deduped, state, [], action, reasoning
+
+    async def _complete_options(self, q: QuestionTemplate) -> list[str]:
+        try:
+            r = await self.track1.llm.chat(
+                messages=[{"role": "user", "content": f'问题：{q.question}\n针对此问题，列出3-6个具体选项。只返回JSON数组：["选项1","选项2","选项3"]'}],
+                system_prompt="你是临床选项生成助手。只返回JSON数组。", max_tokens=256)
+            data = _extract_json(r.content)
+            if isinstance(data, list):
+                return [str(x) for x in data if x][:6]
+            if isinstance(data, dict):
+                opts = data.get("options") or data.get("choices") or []
+                if isinstance(opts, list):
+                    return [str(x) for x in opts if x][:6]
+        except Exception:
+            pass
+        return []
 
     async def _continuity_question(self, state: InterviewState) -> QuestionTemplate:
         try:
