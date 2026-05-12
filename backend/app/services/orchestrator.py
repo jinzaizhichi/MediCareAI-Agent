@@ -150,8 +150,8 @@ class Track1Agent:
                     lines.append(f"- {k}: {str(v)[:100]}")
         pending = [p.value for p in PHASE_ORDER if p.value not in state.collected_info]
         lines.append(f"\n## 未覆盖维度\n{', '.join(pending[:8])}")
-        lines.append(f"\n## 已问数量\n{len(state.asked_questions)}（达到10个将自动结束问诊）")
-        lines.append("\n## 指令\n只生成basic_module，每轮1-2个问题，优先问未覆盖维度。不重复已收集信息对应的维度。已问过的内容不要再问。每个choice/multi_choice必须给出具体选项。")
+        lines.append(f"\n## 已问数量\n{len(state.asked_questions)}")
+        lines.append("\n## 指令\n只生成basic_module，每轮1-2个问题，优先问未覆盖维度。不重复已收集信息对应的维度。每个choice/multi_choice必须给出具体选项（如疼痛性质的选项是酸痛/刺痛/胀痛/麻木/灼热，不是\"选项1\"）。")
         lines.append("\n" + TRACK1_DECISION_SCHEMA)
         return "\n".join(lines)
 
@@ -292,11 +292,7 @@ class InterviewOrchestrator:
 
         # Phase 4: Decision logic
         action = "ask"
-        if len(state.asked_questions) >= 10:
-            action = "synthesize"
-            state.is_sufficient = True
-            self.logger.info("[ORCH] FORCING SYNTHESIZE after %d questions (max_reached)", len(state.asked_questions))
-        elif state.red_flags_detected and len(state.asked_questions) >= state.min_questions:
+        if state.red_flags_detected and len(state.asked_questions) >= state.min_questions:
             action = "synthesize"
             state.is_sufficient = True
             self.logger.warning("[ORCH] FORCING SYNTHESIZE due to red_flags after %d questions", len(state.asked_questions))
