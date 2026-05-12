@@ -336,20 +336,30 @@ class InterviewOrchestrator:
         if state.red_flags_detected and len(state.asked_questions) >= state.min_questions:
             action = "synthesize"
             state.is_sufficient = True
+            deduped = []  # Drop pending questions — go straight to diagnosis
             self.logger.warning("[ORCH] FORCING SYNTHESIZE due to red_flags after %d questions", len(state.asked_questions))
+
+        if action == "synthesize":
+            return deduped, state, [], action, reasoning
 
         deduped = await self._semantic_dedup(deduped, state)
 
-        if not deduped and action == "ask":
+        if not deduped:
             if state.fallback_count >= 2:
                 action = "synthesize"
                 state.is_sufficient = True
                 self.logger.warning("[ORCH] FORCING SYNTHESIZE after %d consecutive continuity fallbacks", state.fallback_count)
-            else:
-                ctx_q = await self._continuity_question(state)
+                return [], state, [], action, reasoning
+            ctx_q = await self._continuity_question(state)
+            # Re-check continuity question against dedup to prevent repeats
+            if self._deduplicate([ctx_q], state):
                 deduped = [ctx_q]
                 state.fallback_count += 1
                 self.logger.info("[ORCH] No questions generated, using LLM continuity question (fallback #%d)", state.fallback_count)
+            else:
+                action = "synthesize"
+                state.is_sufficient = True
+                self.logger.warning("[ORCH] Continuity question was duplicate, forcing synthesize")
 
         for q in deduped:
             fp = _fingerprint(q.question)
