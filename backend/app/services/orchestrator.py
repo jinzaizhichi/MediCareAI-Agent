@@ -293,7 +293,10 @@ class InterviewOrchestrator:
         # Phase 2: Track2 generates with Track1 dimensions visible
         track2_questions = await self.track2.generate(state, search_results, diffs)
 
-        # Phase 3: Merge and deduplicate
+        for k in list(state.collected_info.keys()):
+            if state.collected_info[k] == "asked_by_track1":
+                del state.collected_info[k]
+
         all_questions = track1_questions + track2_questions
         deduped = self._deduplicate(all_questions, state)
 
