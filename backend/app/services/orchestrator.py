@@ -287,10 +287,8 @@ class InterviewOrchestrator:
                 opts = await self._complete_options(q)
                 if opts:
                     q.options = opts
-                    q.type = "multi_choice" if len(opts) >= 2 else "choice"
-                elif q.type == "multi_choice":
-                    q.type = "text"
-                    q.options = []
+                    if len(opts) >= 2:
+                        q.type = "multi_choice"
 
         # Phase 4: Decision logic
         action = "ask"
