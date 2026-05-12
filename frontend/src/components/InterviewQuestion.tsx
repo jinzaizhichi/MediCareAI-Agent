@@ -212,6 +212,33 @@ export default function InterviewQuestion({ question, onAnswer, disabled = false
             </Button>
           </Box>
         )}
+        {question.type === 'multi_choice' && !question.options && (
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
+            <TextField
+              fullWidth size="small"
+              placeholder="请输入您的回答（可按Enter发送）..."
+              value={textAnswer}
+              onChange={(e) => setTextAnswer(e.target.value)}
+              onKeyDown={handleKeyDown}
+              disabled={disabled || answered}
+              variant="outlined"
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  bgcolor: '#FFFFFF', borderRadius: 2, fontSize: 14,
+                  '& fieldset': { borderColor: phaseStyle.border },
+                  '&:hover fieldset': { borderColor: phaseStyle.border },
+                  '&.Mui-focused fieldset': { borderColor: phaseStyle.border, borderWidth: 2 },
+                },
+              }}
+            />
+            <Button variant="contained" size="small" onClick={handleTextSubmit}
+              disabled={disabled || answered || !textAnswer.trim()}
+              sx={{ minWidth: 64, borderRadius: 2, bgcolor: phaseStyle.border,
+                '&:hover': { bgcolor: phaseStyle.border, opacity: 0.9 },
+                '&.Mui-disabled': { bgcolor: '#F5E6D3', color: '#8B7355' },
+                textTransform: 'none', fontWeight: 600 }}>回答</Button>
+          </Box>
+        )}
 
         {question.type === 'text' && (
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
