@@ -107,7 +107,6 @@ class Track1Agent:
                 messages=[{"role": "user", "content": prompt}],
                 system_prompt=TRACK1_SYSTEM_PROMPT,
                 max_tokens=2048,
-                extra_body={"thinking": {"type": "disabled"}},
             )
             raw = _extract_json(response.content)
             if not raw or not isinstance(raw, dict):
@@ -194,7 +193,6 @@ class Track2Agent:
                 messages=[{"role": "user", "content": prompt}],
                 system_prompt=TRACK2_SYSTEM_PROMPT,
                 max_tokens=1024,
-                extra_body={"thinking": {"type": "disabled"}},
             )
             raw = _extract_json(response.content)
             questions = self._to_templates(raw.get("advanced_module", []), state)
@@ -312,8 +310,7 @@ class InterviewOrchestrator:
         try:
             r = await self.track1.llm.chat(
                 messages=[{"role": "user", "content": f'问题：{q.question}\n针对此问题，列出3-6个具体选项。只返回JSON数组：["选项1","选项2","选项3"]'}],
-                system_prompt="你是临床选项生成助手。只返回JSON数组。", max_tokens=256,
-                extra_body={"thinking": {"type": "disabled"}})
+                system_prompt="你是临床选项生成助手。只返回JSON数组。", max_tokens=256)
             data = _extract_json(r.content)
             if isinstance(data, list):
                 return [str(x) for x in data if x][:6]

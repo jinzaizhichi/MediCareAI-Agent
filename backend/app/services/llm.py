@@ -205,6 +205,7 @@ class LLMService:
         max_tokens: int | None = None,
         system_prompt: str | None = None,
         extra_body: dict | None = None,
+        disable_thinking: bool = True,
     ) -> LLMResponse:
         """Send a non-streaming chat completion request."""
         client = await self._get_client()
@@ -227,8 +228,13 @@ class LLMService:
             max_tokens=max_tokens,
             stream=False,
         )
+        merged_extra = {}
+        if disable_thinking:
+            merged_extra["thinking"] = {"type": "disabled"}
         if extra_body:
-            kwargs["extra_body"] = extra_body
+            merged_extra.update(extra_body)
+        if merged_extra:
+            kwargs["extra_body"] = merged_extra
         response = await client.chat.completions.create(**kwargs)
         logger.info("[LLM_POST] got response, choices=%d",
                      len(response.choices) if response.choices else 0)
@@ -331,6 +337,7 @@ class LLMService:
             tools=tools,  # type: ignore[arg-type]
             tool_choice=tool_choice,  # type: ignore[arg-type]
             stream=False,
+            extra_body={"thinking": {"type": "disabled"}},
         )
 
         choice = response.choices[0]
