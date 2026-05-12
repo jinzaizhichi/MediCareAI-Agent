@@ -338,12 +338,18 @@ class InterviewOrchestrator:
             state.is_sufficient = True
             self.logger.warning("[ORCH] FORCING SYNTHESIZE due to red_flags after %d questions", len(state.asked_questions))
 
-        if not deduped and action == "ask":
-            ctx_q = await self._continuity_question(state)
-            deduped = [ctx_q]
-            self.logger.info("[ORCH] No questions generated, using LLM continuity question")
-
         deduped = await self._semantic_dedup(deduped, state)
+
+        if not deduped and action == "ask":
+            if state.fallback_count >= 2:
+                action = "synthesize"
+                state.is_sufficient = True
+                self.logger.warning("[ORCH] FORCING SYNTHESIZE after %d consecutive continuity fallbacks", state.fallback_count)
+            else:
+                ctx_q = await self._continuity_question(state)
+                deduped = [ctx_q]
+                state.fallback_count += 1
+                self.logger.info("[ORCH] No questions generated, using LLM continuity question (fallback #%d)", state.fallback_count)
 
         for q in deduped:
             fp = _fingerprint(q.question)
