@@ -20,6 +20,7 @@ from app.models.interview import (
     _extract_json,
     _fingerprint,
     _extract_phase_key,
+    _extract_semantic_keys,
 )
 from app.services.llm import LLMService
 
@@ -335,6 +336,9 @@ class InterviewOrchestrator:
                 state.asked_question_fingerprints.append(fp)
             pk = _extract_phase_key(q.question_id)
             state.question_phase_keys[q.question_id] = pk
+            for sk in _extract_semantic_keys(q.question):
+                if sk not in state.semantic_phase_keys:
+                    state.semantic_phase_keys.append(sk)
 
         for q in deduped:
             state.current_question_id = q.question_id
@@ -418,16 +422,20 @@ class InterviewOrchestrator:
         seen_ids = set(state.asked_questions)
         seen_fingerprints: set[str] = set(state.asked_question_fingerprints)
         seen_phase_keys: set[str] = set(state.question_phase_keys.values())
+        seen_semantic_keys: set[str] = set(state.semantic_phase_keys)
         result = []
         for q in questions:
             qid = q.question_id
             fp = _fingerprint(q.question)
             pk = _extract_phase_key(qid)
+            sk = _extract_semantic_keys(q.question)
             if qid in seen_ids:
                 continue
             if fp in seen_fingerprints:
                 continue
             if pk in seen_phase_keys:
+                continue
+            if any(k in seen_semantic_keys for k in sk):
                 continue
             seen_ids.add(qid)
             result.append(q)

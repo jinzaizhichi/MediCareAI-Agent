@@ -158,6 +158,44 @@ def _extract_phase_key(question_id: str) -> str:
     return question_id
 
 
+# Symptom keyword → semantic phase key mapping.
+# Questions about the same symptom but with different question_id prefixes
+# (e.g. hpi_associated vs ps_general for fever) still map to one cannonical key.
+_SYMPTOM_KEYWORDS: list[tuple[str, list[str]]] = [
+    ("symptom_fever",       ["发烧", "发热", "体温", "fever"]),
+    ("symptom_cough",       ["咳嗽", "cough"]),
+    ("symptom_vomit",       ["呕吐", "恶心", "vomit", "nausea"]),
+    ("symptom_diarrhea",    ["腹泻", "拉肚子", "大便", "排便", "diarrhea", "stool"]),
+    ("symptom_pain",        ["疼痛", "痛", "疼", "pain"]),
+    ("symptom_dizziness",   ["头晕", "眩晕", "dizziness", "vertigo"]),
+    ("symptom_fatigue",     ["乏力", "疲劳", "没精神", "fatigue"]),
+    ("symptom_appetite",    ["食欲", "进食", "胃口", "appetite"]),
+    ("symptom_sleep",       ["睡眠", "失眠", "睡觉", "sleep", "insomnia"]),
+    ("symptom_rash",        ["皮疹", "疹子", "红斑", "rash"]),
+    ("symptom_breathing",   ["呼吸", "气短", "气喘", "breath", "dyspnea"]),
+    ("symptom_urine",       ["排尿", "小便", "尿", "urine"]),
+    ("symptom_weight",      ["体重", "weight"]),
+    ("symptom_medication",  ["用药", "吃药", "服药", "药物", "medication", "drug"]),
+    ("symptom_allergy",     ["过敏", "allergy"]),
+]
+
+
+def _extract_semantic_keys(question_text: str) -> list[str]:
+    """Extract semantic phase keys from question text via keyword matching.
+
+    Questions about the same symptom always produce the same key regardless
+    of what question_id prefix the LLM assigned.  E.g. both
+    hpi_associated \"有没有发烧？\" and ps_general \"体温多少？\" →
+    [\"symptom_fever\"].
+    """
+    keys: list[str] = []
+    lower = question_text.lower()
+    for key, keywords in _SYMPTOM_KEYWORDS:
+        if any(kw in lower for kw in keywords):
+            keys.append(key)
+    return keys
+
+
 # ---------------------------------------------------------------------------
 # Differential Diagnosis Models
 # ---------------------------------------------------------------------------
@@ -239,6 +277,8 @@ class InterviewState:
     asked_question_fingerprints: list[str] = field(default_factory=list)
     # Phase-level dedup: maps question_id → clinical phase key (e.g. hpi_onset)
     question_phase_keys: dict[str, str] = field(default_factory=dict)
+    # Semantic dedup: symptom-phase keys extracted from question text (e.g. symptom_fever)
+    semantic_phase_keys: list[str] = field(default_factory=list)
 
     # Internal keys for storing differential diagnosis info in collected_info (DB compatibility)
     _DIFF_KEY = "__differential_diagnoses__"
@@ -264,6 +304,7 @@ class InterviewState:
             "phase": self.phase,
             "asked_question_fingerprints": self.asked_question_fingerprints,
             "question_phase_keys": self.question_phase_keys,
+            "semantic_phase_keys": self.semantic_phase_keys,
         }
 
     @classmethod
@@ -287,6 +328,7 @@ class InterviewState:
             phase=data.get("phase", "interviewing"),
             asked_question_fingerprints=data.get("asked_question_fingerprints", []),
             question_phase_keys=data.get("question_phase_keys", {}),
+            semantic_phase_keys=data.get("semantic_phase_keys", []),
         )
 
     # ---- Differential diagnosis helpers (store in collected_info for compatibility) ----
