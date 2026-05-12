@@ -44,7 +44,8 @@ TRACK1_DECISION_SCHEMA = """返回JSON：
 {
   "action": "ask",
   "basic_module": [
-    {"question_id":"hpi_xxx|pmh_xxx|ps_xxx","question":"口语化问题","type":"choice|text","options":["选项"],"hint":"提示","allow_skip":true,"phase":"临床维度","reason":"为何问"}
+    {"question_id":"hpi_xxx|pmh_xxx|ps_xxx","question":"口语化问题","type":"choice|multi_choice|text","options":["选项1","选项2","选项3"],"hint":"提示","allow_skip":true,"phase":"临床维度","reason":"为何问"},
+    {"question_id":"adv_dehydration","question":"有无以下脱水表现？","type":"multi_choice","options":["哭时无泪","尿量明显减少","眼窝凹陷","口唇干燥","精神萎靡"],"hint":"可多选","allow_skip":true,"phase":"现病史-伴随","reason":"评估脱水程度"}
   ],
   "differential_diagnoses": [
     {"diagnosis":"疑似疾病","confidence":"high|medium|low","key_features":["特征"],"reason":"理由"}
@@ -53,7 +54,7 @@ TRACK1_DECISION_SCHEMA = """返回JSON：
   "covered_dimensions": ["已覆盖维度"],
   "reasoning": "临床推理"
 }
-"""
+multi_choice 必须带 options 数组（≥2个选项）。"""
 
 
 # ---------------------------------------------------------------------------
@@ -285,8 +286,12 @@ class InterviewOrchestrator:
 
         for q in deduped:
             if q.type == "multi_choice" and (not q.options or len(q.options) < 2):
-                q.type = "text"
-                q.options = []
+                generated = await self._generate_options(q)
+                if generated:
+                    q.options = generated
+                else:
+                    q.type = "choice"
+                    q.options = ["是", "否"]
 
         # Phase 4: Decision logic
         action = "ask"
@@ -329,6 +334,19 @@ class InterviewOrchestrator:
             )
         except Exception:
             return hard_fallback
+
+    async def _generate_options(self, q: QuestionTemplate) -> list[str]:
+        try:
+            r = await self.track1.llm.chat(
+                messages=[{"role": "user", "content": f'问题：{q.question}\n\n为此问题生成3-5个选项，用中文逗号分隔。只返回JSON：{{"options":["选项1","选项2","选项3"]}}'}],
+                system_prompt="你是选项生成助手。只返回JSON。", max_tokens=256)
+            data = _extract_json(r.content)
+            opts = data.get("options", [])
+            if isinstance(opts, list) and len(opts) >= 2:
+                return opts[:6]
+        except Exception:
+            pass
+        return []
 
     async def _run_search(self, chief_complaint: str, state: InterviewState) -> str:
         try:
