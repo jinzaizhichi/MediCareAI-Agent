@@ -9,7 +9,6 @@ InterviewOrchestrator: Coordinates tracks, merges results, manages state.
 import asyncio
 import json
 import logging
-from dataclasses import dataclass
 from typing import Any
 
 from app.models.interview import (
@@ -82,14 +81,6 @@ TRACK2_DECISION_SCHEMA = """返回JSON（示例）：
 # ---------------------------------------------------------------------------
 # Orchestrator
 # ---------------------------------------------------------------------------
-
-@dataclass
-class RoundResult:
-    questions: list[QuestionTemplate]
-    state: InterviewState
-    search_queries: list[str]
-    action: str
-    reasoning: str
 
 
 class Track1Agent:
