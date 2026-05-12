@@ -539,6 +539,24 @@ Use Markdown formatting for readability.""",
                             # Do NOT return — proceed to diagnosis with red flags included
 
                         yield f"event: thinking\ndata: {json.dumps({'step': 'diagnosis', 'message': '🧠 问诊信息充足，正在综合分析并搜索医学知识...'})}\n\n"
+
+                        # Mark as completed BEFORE generating report to prevent duplicate diagnoses
+                        try:
+                            async with async_session_maker() as _db:
+                                _s = await _db.get(AgentSession, uuid.UUID(session_id))
+                                if _s and _s.context:
+                                    _ctx = _s.context or {}
+                                    _iv = _ctx.get("interview") or {}
+                                    if _iv.get("phase") == "completed":
+                                        yield f"event: complete\ndata: {json.dumps({'status': 'already_diagnosed', 'session_id': session_id})}\n\n"
+                                        return
+                                    _iv["phase"] = "completed"
+                                    _ctx["interview"] = _iv
+                                    _s.context = _ctx
+                                    await _db.commit()
+                        except Exception:
+                            pass
+
                         workflow_result = await diag_agent.run_full_diagnosis_workflow(
                             session_id=session_id,
                             patient_id=actual_patient_id,
@@ -560,18 +578,6 @@ Use Markdown formatting for readability.""",
                             for chunk in _chunk_text(content, chunk_size=80):
                                 yield f"event: text\ndata: {json.dumps({'text': chunk})}\n\n"
                         yield f"event: complete\ndata: {json.dumps({'message': '✅ 响应完成', 'session_id': session_id})}\n\n"
-                        try:
-                            async with async_session_maker() as _db:
-                                _s = await _db.get(AgentSession, uuid.UUID(session_id))
-                                if _s and _s.context:
-                                    _ctx = _s.context or {}
-                                    _iv = _ctx.get("interview") or {}
-                                    _iv["phase"] = "completed"
-                                    _ctx["interview"] = _iv
-                                    _s.context = _ctx
-                                    await _db.commit()
-                        except Exception:
-                            pass
                         return
                     except Exception:
                         # Interview failed — fall through to direct diagnosis
@@ -725,6 +731,23 @@ async def route_stream_continue(
         _msg_start = "🧠 问诊完成，正在整理问诊信息..."
         yield f"event: thinking\ndata: {json.dumps({'step': 'diagnosis', 'message': _msg_start})}\n\n"
 
+        # Mark as completed BEFORE generating report to prevent duplicate diagnoses
+        try:
+            async with async_session_maker() as _db:
+                _s = await _db.get(AgentSession, uuid.UUID(session_id))
+                if _s and _s.context:
+                    _ctx = _s.context or {}
+                    _iv = _ctx.get("interview") or {}
+                    if _iv.get("phase") == "completed":
+                        yield f"event: complete\ndata: {json.dumps({'status': 'already_diagnosed', 'session_id': session_id})}\n\n"
+                        return
+                    _iv["phase"] = "completed"
+                    _ctx["interview"] = _iv
+                    _s.context = _ctx
+                    await _db.commit()
+        except Exception:
+            pass
+
         try:
             yield f"event: tool_call\ndata: {json.dumps({'tool': 'search_medical_knowledge', 'params': {'query': '基于问诊摘要的医学搜索'}, 'message': '🔍 正在搜索医学知识库和最新文献...'})}\n\n"
             
@@ -758,18 +781,6 @@ async def route_stream_continue(
                 content = result.content if isinstance(result.content, str) else json.dumps(result.content, ensure_ascii=False)
                 for chunk in _chunk_text(content, chunk_size=80):
                     yield f"event: text\ndata: {json.dumps({'text': chunk})}\n\n"
-            try:
-                async with async_session_maker() as _db:
-                    _s = await _db.get(AgentSession, uuid.UUID(session_id))
-                    if _s and _s.context:
-                        _ctx = _s.context or {}
-                        _iv = _ctx.get("interview") or {}
-                        _iv["phase"] = "completed"
-                        _ctx["interview"] = _iv
-                        _s.context = _ctx
-                        await _db.commit()
-            except Exception:
-                pass
         except Exception as e:
             import traceback, logging as _logmod
             _log = _logmod.getLogger("agents")
