@@ -258,7 +258,11 @@ class InterviewOrchestrator:
         knowledge_context: str = "",
     ) -> tuple[list[QuestionTemplate], InterviewState, list[str], str, str]:
         if state.phase == "completed":
-            return [], state, [], "completed", ""
+            if state.regeneration_count >= 1:
+                return [], state, [], "completed", ""
+            state.phase = "interviewing"
+            state.regeneration_count += 1
+            self.logger.info("[ORCH] phase=completed, allowing 1 regeneration (#%d)", state.regeneration_count)
         chief = state.chief_complaint
         self.logger.info(
             "[ORCH] asked=%d pending=%d",

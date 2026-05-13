@@ -241,6 +241,8 @@ class InterviewState:
     question_phase_keys: dict[str, str] = field(default_factory=dict)
     # LLM-level dedup: maps question_id → original question text for semantic comparison
     question_texts: dict[str, str] = field(default_factory=dict)
+    # Regeneration control: max 1 regeneration after initial diagnosis
+    regeneration_count: int = 0
 
     # Internal keys for storing differential diagnosis info in collected_info (DB compatibility)
     _DIFF_KEY = "__differential_diagnoses__"
@@ -267,6 +269,7 @@ class InterviewState:
             "asked_question_fingerprints": self.asked_question_fingerprints,
             "question_phase_keys": self.question_phase_keys,
             "question_texts": self.question_texts,
+            "regeneration_count": self.regeneration_count,
         }
 
     @classmethod
@@ -291,6 +294,7 @@ class InterviewState:
             asked_question_fingerprints=data.get("asked_question_fingerprints", []),
             question_phase_keys=data.get("question_phase_keys", {}),
             question_texts=data.get("question_texts", {}),
+            regeneration_count=data.get("regeneration_count", 0),
         )
 
     # ---- Differential diagnosis helpers (store in collected_info for compatibility) ----

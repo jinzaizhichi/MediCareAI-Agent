@@ -690,13 +690,6 @@ async def route_stream_continue(
             yield f"event: error\ndata: {json.dumps({'error': 'Session not found'})}\n\n"
             return
 
-        # Guard: if diagnosis was already completed by a concurrent request, skip
-        if session.context:
-            iv = (session.context or {}).get("interview") or {}
-            if iv.get("phase") == "completed":
-                yield f"event: complete\ndata: {json.dumps({'status': 'already_diagnosed', 'session_id': session_id})}\n\n"
-                return
-
         diag_agent = DiagnosisAgent(provider=None)
 
         yield f"event: thinking\ndata: {json.dumps({'step': 'processing', 'message': '🧠 正在分析您的回答...'})}\n\n"
