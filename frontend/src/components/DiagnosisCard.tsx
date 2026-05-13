@@ -73,7 +73,10 @@ export default function DiagnosisCard({ report }: Props) {
               <Stack spacing={1}>
                 {report.differential_diagnoses.map((d, i) => (
                   <Box key={i} sx={{ bgcolor: 'background.paper', p: 1.5, borderRadius: 2, border: '1px solid #F5E6D3' }}>
-                    <Typography variant="body2" sx={{ fontWeight: 500 }}>{d.diagnosis} <span style={{ color: 'text.secondary', fontSize: 12 }}>({d.icd11_code})</span></Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                      {d.diagnosis}
+                      {d.icd11_code ? <span style={{ color: 'text.secondary', fontSize: 12 }}> (ICD-11: {d.icd11_code})</span> : null}
+                    </Typography>
                     <Typography variant="caption" color="text.secondary">{d.reasoning}</Typography>
                   </Box>
                 ))}

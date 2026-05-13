@@ -342,6 +342,9 @@ RULES:
 - Always include the disclaimer that this is AI-assisted, not definitive.
 - If information is insufficient, state so explicitly in key_findings.
 - For differential_diagnoses, always provide at least 2-5 alternatives with reasoning.
+- For each diagnosis in primary_diagnosis and differential_diagnoses, provide the correct
+  ICD-11 code in icd11_code (e.g., "J05.0" for acute laryngitis, "J00" for acute nasopharyngitis).
+  Look up the standard ICD-11 code from your medical knowledge; do NOT leave icd11_code empty.
 - Output ONLY valid JSON, no markdown formatting."""
 
         user_msg = f"症状: {symptoms}"

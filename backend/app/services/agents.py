@@ -431,7 +431,8 @@ OUTPUT (search query only):"""
                             "请根据以上信息，生成结构化诊断报告。"
                             "必须包含：primary_diagnosis, differential_diagnoses (2-5个), confidence, severity, "
                             "key_findings, recommended_tests, recommended_actions, red_flags, knowledge_sources。"
-                            "输出必须是有效的JSON格式。"
+                            "每个诊断（primary_diagnosis 和 differential_diagnoses 中的每一项）必须提供正确的 ICD-11 码（icd11_code），"
+                            "如 J05.0（急性喉炎）、J00（急性鼻咽炎）。输出必须是有效的JSON格式。"
                         ),
                     }]
                     structured = await llm.generate_structured(
