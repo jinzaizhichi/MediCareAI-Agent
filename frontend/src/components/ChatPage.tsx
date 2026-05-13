@@ -42,6 +42,7 @@ export default function ChatPage() {
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [answeredIds, setAnsweredIds] = useState<Set<string>>(new Set());
   const [reportData, setReportData] = useState<DiagnosisReport | null>(null);
+  const [isDiagnosed, setIsDiagnosed] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const didInit = useRef(false);
@@ -523,6 +524,21 @@ export default function ChatPage() {
                   }
                   break;
                 }
+                if (status === 'already_diagnosed') {
+                  setIsDiagnosed(true);
+                  setMessages((prev) => {
+                    const idx = prev.findIndex((m) => m.id === agentMsgId);
+                    if (idx === -1) {
+                      return [...prev, { id: agentMsgId, role: 'system', content: '✅ 问诊已完成，诊断报告已生成。', timestamp: new Date() }];
+                    }
+                    const next = prev.slice();
+                    next[idx] = { ...next[idx], isStreaming: false, content: '✅ 问诊已完成，诊断报告已生成。', workflowSteps: [...workflowSteps] };
+                    return next;
+                  });
+                  setIsStreaming(false);
+                  pendingSessionRef.current = null;
+                  break;
+                }
                 addStep({
                   type: 'complete',
                   status: 'done',
@@ -623,13 +639,29 @@ export default function ChatPage() {
           </Fab>
         )}
 
+        {reportData && (
+          <Fab
+            size="small"
+            onClick={() => setReportData(reportData)}
+            sx={{ position: 'absolute', bottom: 100, right: 24, bgcolor: 'primary.main', color: '#fff', boxShadow: 3, zIndex: 1200 }}
+          >
+            📊
+          </Fab>
+        )}
+
         <Box sx={{ p: 2, borderTop: '1px solid #F5E6D3', bgcolor: 'background.paper' }}>
-          <ChatInput
-            onSend={handleSend}
-            disabled={isStreaming}
-            quickReplies={messages.length <= 2 ? QUICK_REPLIES : undefined}
-            onQuickReply={handleQuickReply}
-          />
+          {isDiagnosed ? (
+            <Typography variant="body2" color="text.secondary" align="center" sx={{ py: 1 }}>
+              ✅ 问诊已完成，诊断报告已生成
+            </Typography>
+          ) : (
+            <ChatInput
+              onSend={handleSend}
+              disabled={isStreaming}
+              quickReplies={messages.length <= 2 ? QUICK_REPLIES : undefined}
+              onQuickReply={handleQuickReply}
+            />
+          )}
         </Box>
       </Box>
 
