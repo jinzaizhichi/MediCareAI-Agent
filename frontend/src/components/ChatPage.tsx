@@ -42,6 +42,7 @@ export default function ChatPage() {
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [answeredIds, setAnsweredIds] = useState<Set<string>>(new Set());
   const [reportData, setReportData] = useState<DiagnosisReport | null>(null);
+  const [showReport, setShowReport] = useState(false);
   const [isDiagnosed, setIsDiagnosed] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -237,6 +238,7 @@ export default function ChatPage() {
               case 'structured':
                 structured = event.data as unknown as DiagnosisReport;
                 setReportData(structured);
+                setShowReport(true);
                 setMessages((prev) => {
                   const idx = prev.findIndex((m) => m.id === agentMsgId);
                   if (idx === -1) return prev;
@@ -444,6 +446,7 @@ export default function ChatPage() {
               case 'structured':
                 structured = event.data as unknown as DiagnosisReport;
                 setReportData(structured);
+                setShowReport(true);
                 setMessages((prev) => {
                   const idx = prev.findIndex((m) => m.id === agentMsgId);
                   if (idx === -1) return prev;
@@ -642,7 +645,7 @@ export default function ChatPage() {
         {reportData && (
           <Fab
             size="small"
-            onClick={() => setReportData(reportData)}
+            onClick={() => setShowReport(true)}
             sx={{ position: 'absolute', bottom: 100, right: 24, bgcolor: 'primary.main', color: '#fff', boxShadow: 3, zIndex: 1200 }}
           >
             📊
@@ -667,8 +670,8 @@ export default function ChatPage() {
 
       <FullScreenReport
         report={reportData!}
-        visible={!!reportData}
-        onClose={() => setReportData(null)}
+        visible={!!reportData && showReport}
+        onClose={() => setShowReport(false)}
       />
     </Box>
   );
