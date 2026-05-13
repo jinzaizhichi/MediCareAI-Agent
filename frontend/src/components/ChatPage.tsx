@@ -51,8 +51,13 @@ export default function ChatPage() {
 
   useEffect(() => {
     const cleanup = () => {
-      if (!getToken() && guestStatus) {
-        fetch('/api/v1/auth/guest', { method: 'DELETE', keepalive: true }).catch(() => {});
+      const guestToken = localStorage.getItem('guest_token');
+      if (!getToken() && guestToken && guestStatus) {
+        fetch('/api/v1/auth/guest', {
+          method: 'DELETE',
+          keepalive: true,
+          headers: { 'Authorization': `Bearer ${guestToken}` },
+        }).catch(() => {});
       }
     };
     window.addEventListener('beforeunload', cleanup);
