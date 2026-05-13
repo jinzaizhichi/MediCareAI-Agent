@@ -554,9 +554,6 @@ Use Markdown formatting for readability.""",
                                 if _s and _s.context:
                                     _ctx = _s.context or {}
                                     _iv = _ctx.get("interview") or {}
-                                    if _iv.get("phase") == "completed":
-                                        yield f"event: complete\ndata: {json.dumps({'status': 'already_diagnosed', 'session_id': session_id})}\n\n"
-                                        return
                                     _iv["phase"] = "completed"
                                     _ctx["interview"] = _iv
                                     _s.context = _ctx
@@ -753,9 +750,6 @@ async def route_stream_continue(
                 if _s and _s.context:
                     _ctx = _s.context or {}
                     _iv = _ctx.get("interview") or {}
-                    if _iv.get("phase") == "completed":
-                        yield f"event: complete\ndata: {json.dumps({'status': 'already_diagnosed', 'session_id': session_id})}\n\n"
-                        return
                     _iv["phase"] = "completed"
                     _ctx["interview"] = _iv
                     _s.context = _ctx
