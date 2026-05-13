@@ -311,16 +311,36 @@ class InterviewState:
         self.collected_info[self._FEATURES_KEY] = features
 
     def get_summary(self) -> str:
-        """Generate a concise medical summary from collected info."""
+        """Generate a concise medical summary from all collected info.
+
+        Iterates ALL keys in collected_info and raw_answers — not just
+        PHASE_ORDER keys — so Track2 (adv_*) and continuity (cq_*) data
+        is not silently dropped from the diagnosis input.
+        """
         lines = [f"主诉: {self.chief_complaint}"]
-        for phase_id in PHASE_ORDER:
-            if phase_id.value in self.collected_info and not phase_id.value.startswith("__"):
-                meta = PHASE_META.get(phase_id, {})
-                cat = meta.get("cat", phase_id.value)
-                val = self.collected_info[phase_id.value]
-                if val and val not in ("无", "没有", "不清楚", "不记得"):
-                    lines.append(f"  {cat} [{phase_id.value}]: {val}")
-        # Add differential diagnoses summary
+        # Collected structured info (exclude internal keys)
+        for key, val in self.collected_info.items():
+            if key.startswith("__"):
+                continue
+            if val and val not in ("无", "没有", "不清楚", "不记得", "asked_by_track1", "跳过"):
+                meta = {}
+                try:
+                    ep = InterviewPhase(key)
+                    meta = PHASE_META.get(ep, {})
+                except ValueError:
+                    pass
+                cat = meta.get("cat", "")
+                prefix = f"  {cat} " if cat else "  "
+                lines.append(f"{prefix}[{key}]: {val}")
+        # Raw patient answers (supplemental context)
+        for key, val in self.raw_answers.items():
+            if key.startswith("__"):
+                continue
+            if val and val not in ("无", "没有", "不清楚", "不记得", "跳过"):
+                # Skip if already covered by collected_info
+                if key not in self.collected_info or not self.collected_info.get(key):
+                    lines.append(f"  患者回答 [{key}]: {val}")
+        # Differential diagnoses summary
         diffs = self.get_differential_diagnoses()
         if diffs:
             lines.append("  鉴别诊断:")
