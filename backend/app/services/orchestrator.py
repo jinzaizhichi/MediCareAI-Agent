@@ -257,6 +257,8 @@ class InterviewOrchestrator:
         patient_history: str | None = None,
         knowledge_context: str = "",
     ) -> tuple[list[QuestionTemplate], InterviewState, list[str], str, str]:
+        if state.phase == "completed":
+            return [], state, [], "completed", ""
         chief = state.chief_complaint
         self.logger.info(
             "[ORCH] asked=%d pending=%d",
