@@ -283,6 +283,21 @@ export function clearGuestToken(): void {
   localStorage.removeItem('guest_status');
 }
 
+export async function migrateGuestData(): Promise<number> {
+  const guestToken = getGuestToken();
+  if (!guestToken) return 0;
+  try {
+    const res = await fetch('/api/v1/auth/guest/migrate', {
+      method: 'POST',
+      headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+    });
+    const data = await res.json();
+    return data.migrated || 0;
+  } catch {
+    return 0;
+  }
+}
+
 /**
  * Agent API 对象 (兼容性导出)
  */
@@ -296,4 +311,5 @@ export const agentApi = {
   streamDiagnoseContinue,
   listSessions,
   clearGuestToken,
+  migrateGuestData,
 };

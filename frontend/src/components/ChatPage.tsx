@@ -49,6 +49,16 @@ export default function ChatPage() {
   const didInit = useRef(false);
   const pendingSessionRef = useRef<{ sessionId: string; questionId: string } | null>(null);
 
+  useEffect(() => {
+    const cleanup = () => {
+      if (!getToken() && guestStatus) {
+        fetch('/api/v1/auth/guest', { method: 'DELETE', keepalive: true }).catch(() => {});
+      }
+    };
+    window.addEventListener('beforeunload', cleanup);
+    return () => window.removeEventListener('beforeunload', cleanup);
+  }, [guestStatus]);
+
   // 初始化：检查认证状态，未登录时自动创建访客 session
   useEffect(() => {
     if (didInit.current) return;

@@ -15,11 +15,12 @@ from typing import Annotated, Any
 
 import jwt
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi.responses import Response
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy import select
+from sqlalchemy import select, delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, get_current_user
+from app.api.deps import CurrentUser, CurrentUserContext, get_current_user
 from app.core.config import get_settings
 from app.core.security import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
@@ -407,3 +408,64 @@ async def logout(
     except Exception:
         # Redis unavailable — ignore (token will expire naturally)
         pass
+
+
+@router.delete("/guest", status_code=status.HTTP_204_NO_CONTENT)
+async def cleanup_guest_session(
+    ctx: CurrentUserContext,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete guest session and all associated AgentSessions on page leave.
+
+    Called via beforeunload from the frontend when a guest leaves the page.
+    Cleans up both the guest_session and any agent_sessions linked to it.
+    """
+    if ctx.user is not None:
+        # Not a guest — nothing to clean up
+        return Response(status_code=204)
+
+    guest_id = ctx.guest_id
+    if not guest_id:
+        return Response(status_code=204)
+
+    from app.models.agent import AgentSession
+
+    # Delete linked agent sessions first
+    stmt = delete(AgentSession).where(AgentSession.guest_session_id == uuid.UUID(guest_id))
+    await db.execute(stmt)
+
+    # Delete the guest session
+    stmt2 = delete(GuestSession).where(GuestSession.id == uuid.UUID(guest_id))
+    await db.execute(stmt2)
+
+    await db.commit()
+
+
+@router.post("/guest/migrate", status_code=status.HTTP_200_OK)
+async def migrate_guest_to_user(
+    ctx: CurrentUserContext,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Migrate a guest's AgentSessions to a registered user account.
+
+    Called after a guest registers or logs in. Transfers all agent_sessions
+    from the guest_session_id to the user_id.
+    """
+    if ctx.user is None:
+        raise HTTPException(status_code=400, detail="User account required for migration")
+
+    guest_id = ctx.guest_id
+    if not guest_id:
+        return {"migrated": 0}
+
+    from app.models.agent import AgentSession
+
+    stmt = (
+        update(AgentSession)
+        .where(AgentSession.guest_session_id == uuid.UUID(guest_id))
+        .values(guest_session_id=None, user_id=ctx.user.id)
+    )
+    result = await db.execute(stmt)
+    await db.commit()
+
+    return {"migrated": result.rowcount}

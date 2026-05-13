@@ -53,6 +53,8 @@ const LoginPage: React.FC = () => {
     setLoading(true);
     try {
       await login({ email: email.trim(), password, role: 'patient' });
+      // Migrate any guest data to the user account
+      import('../api/agent').then(m => m.migrateGuestData()).catch(() => {});
       const user = await getMe();
       const role = user.role;
       const routes: Record<string, string> = {
