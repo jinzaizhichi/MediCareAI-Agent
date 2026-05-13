@@ -18,6 +18,7 @@ import ChatMessage from './ChatMessage';
 import ChatInput from './ChatInput';
 import GuestBanner from './GuestBanner';
 import PendingCardsPanel from './PendingCardsPanel';
+import FullScreenReport from './FullScreenReport';
 
 
 const QUICK_REPLIES = [
@@ -40,6 +41,7 @@ export default function ChatPage() {
   const [guestStatus, setGuestStatus] = useState<GuestStatus | null>(null);
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [answeredIds, setAnsweredIds] = useState<Set<string>>(new Set());
+  const [reportData, setReportData] = useState<DiagnosisReport | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const didInit = useRef(false);
@@ -233,6 +235,7 @@ export default function ChatPage() {
               }
               case 'structured':
                 structured = event.data as unknown as DiagnosisReport;
+                setReportData(structured);
                 setMessages((prev) => {
                   const idx = prev.findIndex((m) => m.id === agentMsgId);
                   if (idx === -1) return prev;
@@ -439,6 +442,7 @@ export default function ChatPage() {
               }
               case 'structured':
                 structured = event.data as unknown as DiagnosisReport;
+                setReportData(structured);
                 setMessages((prev) => {
                   const idx = prev.findIndex((m) => m.id === agentMsgId);
                   if (idx === -1) return prev;
@@ -628,6 +632,12 @@ export default function ChatPage() {
           />
         </Box>
       </Box>
+
+      <FullScreenReport
+        report={reportData!}
+        visible={!!reportData}
+        onClose={() => setReportData(null)}
+      />
     </Box>
   );
 }
