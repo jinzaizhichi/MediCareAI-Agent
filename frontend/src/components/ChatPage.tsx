@@ -55,19 +55,26 @@ export default function ChatPage() {
     didInit.current = true;
 
     const initAuth = async () => {
+      if (getToken()) return;
+      // Try to reuse stored guest session; if expired, create fresh one
       const stored = agentApi.getGuestStatus();
       if (stored) {
-        setGuestStatus(stored);
-        return;
-      }
-      if (!getToken()) {
-        // 未登录，尝试创建访客 session
         try {
-          await agentApi.createGuestSession();
-          setGuestStatus(agentApi.getGuestStatus());
-        } catch (e) {
-          console.error('Failed to create guest session on ChatPage init:', e);
+          const status = await agentApi.fetchGuestStatus();
+          if (status) {
+            setGuestStatus(status);
+            return;
+          }
+        } catch {
+          agentApi.clearGuestToken();
         }
+      }
+      // Create new guest session
+      try {
+        await agentApi.createGuestSession();
+        setGuestStatus(agentApi.getGuestStatus());
+      } catch (e) {
+        console.error('Failed to create guest session:', e);
       }
     };
 
