@@ -591,7 +591,8 @@ class DynamicInterviewEngine:
         2. Update the differential diagnosis list based on new information
         """
         state.raw_answers[question_id] = answer
-        state.asked_questions.append(question_id)
+        if question_id not in state.asked_questions:
+            state.asked_questions.append(question_id)
 
         if answer.lower() in ("跳过", "skipped", "不清楚", "不记得"):
             state.collected_info[question_id] = answer

@@ -377,6 +377,8 @@ class InterviewOrchestrator:
             state.question_texts[q.question_id] = q.question
 
         for q in deduped:
+            if q.question_id not in state.asked_questions:
+                state.asked_questions.append(q.question_id)
             state.current_question_id = q.question_id
         state.pending_question_ids = [q.question_id for q in deduped]
 
