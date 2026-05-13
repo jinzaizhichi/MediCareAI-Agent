@@ -540,8 +540,15 @@ Use Markdown formatting for readability.""",
 
                         yield f"event: thinking\ndata: {json.dumps({'step': 'diagnosis', 'message': '🧠 问诊信息充足，正在综合分析并搜索医学知识...'})}\n\n"
 
-                        # Mark as completed BEFORE generating report to prevent duplicate diagnoses
+                        # Mark as completed BEFORE generating report — with Redis lock
                         try:
+                            from app.db.redis_client import get_redis
+                            redis_client = get_redis()
+                            lock_key = f"diag_lock:{session_id}"
+                            locked = await redis_client.set(lock_key, "1", nx=True, ex=60)
+                            if not locked:
+                                yield f"event: complete\ndata: {json.dumps({'status': 'already_diagnosed', 'session_id': session_id})}\n\n"
+                                return
                             async with async_session_maker() as _db:
                                 _s = await _db.get(AgentSession, uuid.UUID(session_id))
                                 if _s and _s.context:
@@ -554,8 +561,9 @@ Use Markdown formatting for readability.""",
                                     _ctx["interview"] = _iv
                                     _s.context = _ctx
                                     await _db.commit()
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            import logging
+                            logging.getLogger("agents").error("Failed to set phase=completed: %s", e, exc_info=True)
 
                         workflow_result = await diag_agent.run_full_diagnosis_workflow(
                             session_id=session_id,
@@ -731,8 +739,15 @@ async def route_stream_continue(
         _msg_start = "🧠 问诊完成，正在整理问诊信息..."
         yield f"event: thinking\ndata: {json.dumps({'step': 'diagnosis', 'message': _msg_start})}\n\n"
 
-        # Mark as completed BEFORE generating report to prevent duplicate diagnoses
+        # Mark as completed BEFORE generating report — with Redis lock
         try:
+            from app.db.redis_client import get_redis
+            redis_client = get_redis()
+            lock_key = f"diag_lock:{session_id}"
+            locked = await redis_client.set(lock_key, "1", nx=True, ex=60)
+            if not locked:
+                yield f"event: complete\ndata: {json.dumps({'status': 'already_diagnosed', 'session_id': session_id})}\n\n"
+                return
             async with async_session_maker() as _db:
                 _s = await _db.get(AgentSession, uuid.UUID(session_id))
                 if _s and _s.context:
@@ -745,8 +760,9 @@ async def route_stream_continue(
                     _ctx["interview"] = _iv
                     _s.context = _ctx
                     await _db.commit()
-        except Exception:
-            pass
+        except Exception as e:
+            import logging
+            logging.getLogger("agents").error("Failed to set phase=completed: %s", e, exc_info=True)
 
         try:
             yield f"event: tool_call\ndata: {json.dumps({'tool': 'search_medical_knowledge', 'params': {'query': '基于问诊摘要的医学搜索'}, 'message': '🔍 正在搜索医学知识库和最新文献...'})}\n\n"
