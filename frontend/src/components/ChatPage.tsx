@@ -633,11 +633,13 @@ export default function ChatPage() {
           <div ref={messagesEndRef} />
         </Box>
 
-        <PendingCardsPanel
-          messages={messages}
-          answeredIds={answeredIds}
-          onAnswer={handleInterviewAnswer}
-        />
+        {!isDiagnosed && (
+          <PendingCardsPanel
+            messages={messages}
+            answeredIds={answeredIds}
+            onAnswer={handleInterviewAnswer}
+          />
+        )}
 
         {showScrollDown && (
           <Fab
