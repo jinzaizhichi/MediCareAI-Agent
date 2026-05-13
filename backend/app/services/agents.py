@@ -31,6 +31,7 @@ from app.models.interview import (
     DynamicInterviewEngine,
     InterviewState,
     QuestionTemplate,
+    _extract_json,
 )
 from app.services.llm import LLMResponse, LLMService
 from app.tools.registry import GLOBAL_REGISTRY
@@ -357,18 +358,32 @@ OUTPUT (search query only):"""
         messages: list[dict[str, str]] = [{"role": "user", "content": user_msg}]
         all_tool_calls: list[dict[str, Any]] = []
 
-        # Multi-turn tool use loop (max 3 rounds)
+        # Multi-turn tool use loop (max 5 rounds, last round forces structured output)
         async with async_session_maker() as db:
             llm = LLMService(provider=self.provider, db=db)
 
-            for _round in range(3):
-                resp = await llm.chat_with_tools(
-                    messages=messages,
-                    tools=tool_schemas,
-                    system_prompt=self.SYSTEM_PROMPT,
-                    max_tokens=4096,
-                    tool_choice="auto",
-                )
+            for _round in range(5):
+                if _round == 4:
+                    # Final round: force JSON output, no more tools
+                    messages.append({
+                        "role": "user",
+                        "content": "所有工具已调用完毕。现在请根据以上全部信息，直接输出结构化的 JSON 诊断报告。不要再调用任何工具。"
+                    })
+                    resp = await llm.chat_with_tools(
+                        messages=messages,
+                        tools=tool_schemas,
+                        system_prompt=self.SYSTEM_PROMPT,
+                        max_tokens=4096,
+                        tool_choice="none",
+                    )
+                else:
+                    resp = await llm.chat_with_tools(
+                        messages=messages,
+                        tools=tool_schemas,
+                        system_prompt=self.SYSTEM_PROMPT,
+                        max_tokens=4096,
+                        tool_choice="auto",
+                    )
 
                 if resp.tool_calls:
                     # Execute tools
@@ -424,7 +439,6 @@ OUTPUT (search query only):"""
             # Attempt 2: Force structured generation via schema-constrained LLM call
             if structured is None:
                 try:
-                    # Add explicit instruction to generate structured report
                     force_messages = messages + [{
                         "role": "user",
                         "content": (
@@ -440,6 +454,31 @@ OUTPUT (search query only):"""
                         output_schema=DiagnosisReport,
                         max_tokens=4096,
                     )
+                except Exception:
+                    pass
+
+            # Attempt 2.5: If generate_structured failed, try plain chat + manual JSON parse
+            if structured is None:
+                try:
+                    force_messages = messages + [{
+                        "role": "user",
+                        "content": (
+                            "基于以上全部信息，直接输出一个JSON格式的诊断报告。"
+                            "输出格式：{\"primary_diagnosis\":\"...\",\"differential_diagnoses\":[{\"diagnosis\":\"...\",\"icd11_code\":\"...\",\"reasoning\":\"...\"}],"
+                            "\"confidence\":\"high|medium|low\",\"severity\":\"mild|moderate|severe|emergency\","
+                            "\"key_findings\":[\"...\"],\"recommended_tests\":[\"...\"],\"recommended_actions\":[\"...\"],"
+                            "\"red_flags\":[\"...\"],\"knowledge_sources\":[\"...\"]}"
+                            "只输出JSON，不要Markdown格式。"
+                        ),
+                    }]
+                    resp = await llm.chat(
+                        messages=force_messages,
+                        system_prompt="你是医学诊断AI。只输出JSON格式的诊断报告。",
+                        max_tokens=4096,
+                    )
+                    raw = _extract_json(resp.content)
+                    if raw and isinstance(raw, dict):
+                        structured = DiagnosisReport.model_validate(raw)
                 except Exception:
                     pass
 
