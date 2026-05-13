@@ -294,7 +294,7 @@ class InterviewState:
             asked_question_fingerprints=data.get("asked_question_fingerprints", []),
             question_phase_keys=data.get("question_phase_keys", {}),
             question_texts=data.get("question_texts", {}),
-            regeneration_count=data.get("regeneration_count", 0),
+            regeneration_count=(data.get("regeneration_count") or 0),
         )
 
     # ---- Differential diagnosis helpers (store in collected_info for compatibility) ----

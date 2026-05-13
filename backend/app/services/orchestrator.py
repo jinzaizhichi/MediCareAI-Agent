@@ -250,7 +250,7 @@ class InterviewOrchestrator:
         knowledge_context: str = "",
     ) -> tuple[list[QuestionTemplate], InterviewState, list[str], str, str]:
         if state.phase == "completed":
-            if state.regeneration_count >= 1:
+            if (state.regeneration_count or 0) >= 1:
                 return [], state, [], "completed", ""
             state.phase = "interviewing"
             state.regeneration_count += 1
