@@ -338,6 +338,7 @@ class InterviewOrchestrator:
         if regeneration:
             action = "synthesize"
             state.is_sufficient = True
+            state.phase = "completed"
             deduped = []
             self.logger.info("[ORCH] FORCING SYNTHESIZE for regeneration")
             return deduped, state, [], action, reasoning
@@ -345,6 +346,7 @@ class InterviewOrchestrator:
         if not deduped:
             sufficient = await self._assess_sufficiency(state)
             state.is_sufficient = True
+            state.phase = "completed"
             action = "synthesize"
             self.logger.info("[ORCH] no new questions — synthesizing (LLM assessed sufficient=%s)", sufficient)
             return [], state, [], action, reasoning
