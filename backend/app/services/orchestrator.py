@@ -332,47 +332,30 @@ class InterviewOrchestrator:
         if filtered_out:
             deduped = [q for q in deduped if q.question_id not in filtered_out]
 
-        # Phase 4: Decision logic
-        if regeneration:
-            action = "synthesize"
-            state.is_sufficient = True
-            state.phase = "completed"
-            deduped = []
-            self.logger.info("[ORCH] FORCING SYNTHESIZE for regeneration")
-        else:
-            action = "ask"
-
-        if action == "synthesize":
-            return deduped, state, [], action, reasoning
-
+        # Phase 4: LLM-driven synthesis decision
         deduped = await self._semantic_dedup(deduped, state)
 
         if not deduped:
-            if state.fallback_count >= 1:
+            if regeneration:
                 action = "synthesize"
                 state.is_sufficient = True
                 state.phase = "completed"
-                self.logger.warning("[ORCH] FORCING SYNTHESIZE after %d consecutive continuity fallbacks", state.fallback_count)
+                self.logger.info("[ORCH] FORCING SYNTHESIZE for regeneration")
                 return [], state, [], action, reasoning
-            ctx_q = await self._continuity_question(state)
-            # Structural dedup check
-            if not self._deduplicate([ctx_q], state):
+
+            sufficient = await self._assess_sufficiency(state)
+            state.is_sufficient = sufficient
+            if sufficient:
                 action = "synthesize"
-                state.is_sufficient = True
                 state.phase = "completed"
-                self.logger.warning("[ORCH] Continuity question was duplicate, forcing synthesize")
+                self.logger.info("[ORCH] LLM assessed sufficient info — synthesizing")
                 return [], state, [], action, reasoning
-            # Semantic dedup check
-            sem_check = await self._semantic_dedup([ctx_q], state)
-            if not sem_check:
-                action = "synthesize"
-                state.is_sufficient = True
-                state.phase = "completed"
-                self.logger.warning("[ORCH] Continuity question semantically duplicate, forcing synthesize")
-                return [], state, [], action, reasoning
-            deduped = sem_check
-            state.fallback_count += 1
-            self.logger.info("[ORCH] No questions generated, using LLM continuity question (fallback #%d)", state.fallback_count)
+
+            self.logger.info("[ORCH] LLM assessed insufficient, no new questions — returning ask")
+            action = "ask"
+            return deduped, state, [], action, reasoning
+
+        action = "ask"
 
         for q in deduped:
             fp = _fingerprint(q.question)
@@ -405,24 +388,6 @@ class InterviewOrchestrator:
         except Exception:
             pass
         return []
-
-    async def _continuity_question(self, state: InterviewState) -> QuestionTemplate:
-        try:
-            r = await self.track1.llm.chat(
-                messages=[{"role": "user", "content": f'患者主诉：{state.chief_complaint}\n已问{len(state.asked_questions)}个问题。请生成1个简短的追问。只返回JSON：{{"q":"问题"}}'}],
-                system_prompt="你是问诊助手。只返回JSON。", max_tokens=128,
-            )
-            q_text = _extract_json(r.content).get("q", "")
-            if q_text:
-                return QuestionTemplate(question_id=f"cq_{len(state.asked_questions)}",
-                    question=q_text, type="text", hint="请自由描述",
-                    allow_skip=True, phase="现病史", colloquial_phase="症状更新")
-        except Exception:
-            pass
-        return QuestionTemplate(question_id=f"cq_{len(state.asked_questions)}",
-            question=f"关于{state.chief_complaint}，请再多说一些细节好吗？",
-            type="text", hint="请自由描述", allow_skip=True,
-            phase="现病史", colloquial_phase="症状更新")
 
     async def _run_search(self, chief_complaint: str, state: InterviewState) -> str:
         try:
@@ -511,6 +476,36 @@ class InterviewOrchestrator:
         except Exception as e:
             self.logger.warning("[ORCH] semantic_dedup failed, passing all: %s", e)
             return candidates
+
+    async def _assess_sufficiency(self, state: InterviewState) -> bool:
+        """LLM judges if collected interview info is sufficient for diagnosis.
+
+        Called only when _deduplicate and _semantic_dedup have filtered
+        ALL candidates — no unique questions remain. The LLM reviews the
+        complete interview state and decides if we have enough to synthesize.
+        """
+        summary = state.get_summary()
+        if not summary or summary == f"主诉: {state.chief_complaint}":
+            return False
+        prompt = (
+            "你是一位临床问诊评估专家。基于以下已收集的全部问诊信息，"
+            "判断目前是否已经收集了足够的信息来撰写一份完整的诊断报告。\n\n"
+            f"{summary}\n\n"
+            "返回JSON: {\"sufficient\": true/false, \"reasoning\": \"为什么\"}"
+        )
+        try:
+            response = await self.track1.llm.chat(
+                messages=[{"role": "user", "content": prompt}],
+                system_prompt="你是临床问诊评估专家。只返回JSON。",
+                max_tokens=128,
+            )
+            data = _extract_json(response.content)
+            sufficient = data.get("sufficient", False) if isinstance(data, dict) else False
+            self.logger.info("[ORCH] sufficiency assessment: %s", sufficient)
+            return sufficient
+        except Exception as e:
+            self.logger.warning("[ORCH] sufficiency assessment failed: %s", e)
+            return False
 
     @staticmethod
     def _deduplicate(questions: list[QuestionTemplate], state: InterviewState) -> list[QuestionTemplate]:
