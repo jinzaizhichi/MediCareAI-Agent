@@ -221,7 +221,7 @@ class InterviewState:
     asked_questions: list[str] = field(default_factory=list)
     current_question_id: str | None = None
     is_sufficient: bool = False
-    min_questions: int = 4           # Minimum before allowing completion
+    min_questions: int = 6           # Minimum before allowing completion
     current_phase_index: int = 0     # Kept for backward compat; not used as sequence constraint
     red_flags_detected: list[str] = field(default_factory=list)
     # Tool calls made during interview

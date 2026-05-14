@@ -332,14 +332,10 @@ class InterviewOrchestrator:
         # Phase 4: Decision logic
         action = "ask"
         if state.red_flags_detected and len(state.asked_questions) >= state.min_questions:
-            pending_unanswered = [qid for qid in state.pending_question_ids if qid not in state.asked_questions]
-            if not pending_unanswered:
-                action = "synthesize"
-                state.is_sufficient = True
-                deduped = []
-                self.logger.warning("[ORCH] FORCING SYNTHESIZE due to red_flags after %d questions", len(state.asked_questions))
-            else:
-                self.logger.info("[ORCH] deferred synthesize — %d pending cards still unanswered", len(pending_unanswered))
+            action = "synthesize"
+            state.is_sufficient = True
+            deduped = []
+            self.logger.warning("[ORCH] FORCING SYNTHESIZE due to red_flags after %d questions", len(state.asked_questions))
 
         if action == "synthesize":
             return deduped, state, [], action, reasoning
