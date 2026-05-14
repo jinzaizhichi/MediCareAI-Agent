@@ -338,7 +338,7 @@ class InterviewOrchestrator:
         deduped = await self._semantic_dedup(deduped, state)
 
         if not deduped:
-            if state.fallback_count >= 2:
+            if state.fallback_count >= 1:
                 action = "synthesize"
                 state.is_sufficient = True
                 self.logger.warning("[ORCH] FORCING SYNTHESIZE after %d consecutive continuity fallbacks", state.fallback_count)
