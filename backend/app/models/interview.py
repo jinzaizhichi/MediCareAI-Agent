@@ -229,7 +229,6 @@ class InterviewState:
     # Anti-loop: stagnation detection
     stagnation_counter: int = 0      # Consecutive rounds without new info
     last_collected_count: int = 0    # Info dimension count in last round
-    fallback_count: int = 0         # Consecutive fallback uses (LLM failed)
     pending_question_ids: list[str] = field(default_factory=list)  # Unanswered from current round
     # User explicitly ended interview
     user_ended: bool = False
@@ -261,7 +260,6 @@ class InterviewState:
             "interview_tool_calls": self.interview_tool_calls,
             "stagnation_counter": self.stagnation_counter,
             "last_collected_count": self.last_collected_count,
-            "fallback_count": self.fallback_count,
             "pending_question_ids": self.pending_question_ids,
             "user_ended": self.user_ended,
             "phase": self.phase,
@@ -285,7 +283,6 @@ class InterviewState:
             interview_tool_calls=data.get("interview_tool_calls", []),
             stagnation_counter=data.get("stagnation_counter", 0),
             last_collected_count=data.get("last_collected_count", 0),
-            fallback_count=data.get("fallback_count", 0),
             pending_question_ids=data.get("pending_question_ids", []),
             user_ended=data.get("user_ended", False),
             phase=data.get("phase", "interviewing"),
@@ -576,29 +573,7 @@ class DynamicInterviewEngine:
             return await orch.decide_next(state, patient_history)
         except Exception as e:
             self.logger.error(f"[DECIDE] orchestrator failed: {e}", exc_info=True)
-            return await self._decide_fallback(state)
-
-    async def _decide_fallback(self, state: InterviewState):
-        state.fallback_count += 1
-        if state.fallback_count >= 2:
-            state.is_sufficient = True
-            return [], state, [], "synthesize", ""
-        try:
-            r = await self.llm.chat(
-                messages=[{"role": "user", "content": f'患者主诉：{state.chief_complaint}\n已问{len(state.asked_questions)}个问题。请生成1个追问。只返回JSON：{{"q":"问题"}}'}],
-                system_prompt="只返回JSON。", max_tokens=128)
-            q_text = _extract_json(r.content).get("q", "")
-        except Exception:
-            q_text = ""
-        if not q_text:
-            q_text = f"关于{state.chief_complaint}，请再多说一些细节好吗？"
-        q = QuestionTemplate(question_id=f"fb_{state.fallback_count}",
-            question=q_text,
-            type="text", hint="请自由描述", allow_skip=True,
-            phase="现病史", colloquial_phase="症状更新")
-        state.current_question_id = q.question_id
-        state.pending_question_ids = [q.question_id]
-        return [q], state, [], "ask", ""
+            raise
 
     async def process_answer(
         self,
