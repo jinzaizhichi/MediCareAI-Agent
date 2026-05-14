@@ -344,6 +344,12 @@ class InterviewOrchestrator:
             return deduped, state, [], action, reasoning
 
         if not deduped:
+            pending_unanswered = set(state.question_texts.keys()) - set(state.asked_questions)
+            if pending_unanswered:
+                self.logger.info("[ORCH] deferred synthesize — %d unanswered cards remain", len(pending_unanswered))
+                action = "ask"
+                return [], state, [], action, reasoning
+
             sufficient = await self._assess_sufficiency(state)
             state.is_sufficient = True
             state.phase = "completed"
