@@ -246,6 +246,7 @@ export default function ChatPage() {
                 structured = event.data as unknown as DiagnosisReport;
                 setReportData(structured);
                 setShowReport(true);
+                setIsDiagnosed(true);
                 setMessages((prev) => {
                   const idx = prev.findIndex((m) => m.id === agentMsgId);
                   if (idx === -1) return prev;
@@ -454,6 +455,7 @@ export default function ChatPage() {
                 structured = event.data as unknown as DiagnosisReport;
                 setReportData(structured);
                 setShowReport(true);
+                setIsDiagnosed(true);
                 setMessages((prev) => {
                   const idx = prev.findIndex((m) => m.id === agentMsgId);
                   if (idx === -1) return prev;
