@@ -255,6 +255,9 @@ class InterviewOrchestrator:
             state.phase = "interviewing"
             state.regeneration_count += 1
             self.logger.info("[ORCH] phase=completed, allowing 1 regeneration (#%d)", state.regeneration_count)
+            regeneration = True
+        else:
+            regeneration = False
         chief = state.chief_complaint
         self.logger.info(
             "[ORCH] asked=%d pending=%d",
@@ -330,7 +333,13 @@ class InterviewOrchestrator:
             deduped = [q for q in deduped if q.question_id not in filtered_out]
 
         # Phase 4: Decision logic
-        action = "ask"
+        if regeneration:
+            action = "synthesize"
+            state.is_sufficient = True
+            deduped = []
+            self.logger.info("[ORCH] FORCING SYNTHESIZE for regeneration")
+        else:
+            action = "ask"
 
         if action == "synthesize":
             return deduped, state, [], action, reasoning
