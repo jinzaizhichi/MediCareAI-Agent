@@ -331,11 +331,6 @@ class InterviewOrchestrator:
 
         # Phase 4: Decision logic
         action = "ask"
-        if state.red_flags_detected and len(state.asked_questions) >= state.min_questions:
-            action = "synthesize"
-            state.is_sufficient = True
-            deduped = []
-            self.logger.warning("[ORCH] FORCING SYNTHESIZE due to red_flags after %d questions", len(state.asked_questions))
 
         if action == "synthesize":
             return deduped, state, [], action, reasoning
