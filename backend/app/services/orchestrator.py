@@ -335,14 +335,15 @@ class InterviewOrchestrator:
         # Phase 4: LLM-driven synthesis decision
         deduped = await self._semantic_dedup(deduped, state)
 
-        if not deduped:
-            if regeneration:
-                action = "synthesize"
-                state.is_sufficient = True
-                state.phase = "completed"
-                self.logger.info("[ORCH] FORCING SYNTHESIZE for regeneration")
-                return [], state, [], action, reasoning
+        if regeneration:
+            action = "synthesize"
+            state.is_sufficient = True
+            state.phase = "completed"
+            deduped = []
+            self.logger.info("[ORCH] FORCING SYNTHESIZE for regeneration")
+            return deduped, state, [], action, reasoning
 
+        if not deduped:
             sufficient = await self._assess_sufficiency(state)
             state.is_sufficient = True
             state.phase = "completed"
@@ -492,7 +493,7 @@ class InterviewOrchestrator:
             response = await self.track1.llm.chat(
                 messages=[{"role": "user", "content": prompt}],
                 system_prompt="你是临床问诊评估专家。只返回JSON。",
-                max_tokens=128,
+                max_tokens=256,
             )
             data = _extract_json(response.content)
             sufficient = data.get("sufficient", False) if isinstance(data, dict) else False
