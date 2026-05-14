@@ -503,6 +503,15 @@ class InterviewOrchestrator:
             self.logger.warning("[ORCH] sufficiency assessment failed: %s", e)
             return False
 
+    async def _is_diagnosis_active(self) -> bool:
+        """Check if a diagnosis is in progress (Redis lock exists)."""
+        try:
+            from app.db.redis_client import get_redis
+            redis_client = get_redis()
+            return await redis_client.exists(f"diag_lock:{id(self)}") > 0
+        except Exception:
+            return False
+
     @staticmethod
     def _deduplicate(questions: list[QuestionTemplate], state: InterviewState) -> list[QuestionTemplate]:
         seen_phase_keys: set[str] = set(state.question_phase_keys.values())

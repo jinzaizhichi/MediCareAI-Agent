@@ -662,6 +662,9 @@ OUTPUT (search query only):"""
             questions, state, searches, action, reasoning = await engine2.decide_next(
                 state, patient_history=patient_history
             )
+            if action == "synthesize":
+                state.phase = "completed"
+                state.is_sufficient = True
         await self._update_interview_state(session_id, state)
         return questions, state, searches, action, reasoning
 
