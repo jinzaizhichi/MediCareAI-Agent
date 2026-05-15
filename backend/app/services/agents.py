@@ -530,7 +530,9 @@ OUTPUT (search query only):"""
             result = await db.execute(stmt)
             session = result.scalar_one_or_none()
             if session:
+                # Preserve existing context (interview state, lab_reports, etc.)
                 session.context = {
+                    **(session.context or {}),
                     "messages": messages,
                     "collected_info": {},
                 }
