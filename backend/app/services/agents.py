@@ -561,6 +561,11 @@ OUTPUT (search query only):"""
                 d = session.context.get("interview")
                 if d:
                     state = InterviewState.from_dict(d)
+                # Load lab reports from session context into interview state
+                # (posted by frontend after Track 3 document parsing completes)
+                lab_reports = session.context.get("lab_reports", [])
+                if lab_reports:
+                    state.lab_reports = lab_reports
         if chief_complaint and not state.chief_complaint:
             state.chief_complaint = chief_complaint
         if collected_info:
