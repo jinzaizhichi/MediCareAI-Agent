@@ -614,13 +614,13 @@ Use Markdown formatting for readability.""",
                             if query_sid:
                                 bridge_reports = _session_lab_bridge.get(query_sid, [])
                                 if bridge_reports:
-                                    ctx = dict(new_session.context or {})
-                                    ctx["lab_reports"] = bridge_reports
-                                    new_session.context = ctx
+                                    ctx_dict = dict(new_session.context or {})
+                                    ctx_dict["lab_reports"] = bridge_reports
+                                    new_session.context = ctx_dict
                                     async with async_session_maker() as _bdb:
                                         _bs = await _bdb.get(AgentSession, uuid.UUID(session_id))
                                         if _bs:
-                                            _bs.context = ctx
+                                            _bs.context = ctx_dict
                                             await _bdb.commit()
                     except Exception:
                         pass
