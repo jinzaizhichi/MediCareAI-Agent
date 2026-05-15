@@ -24,7 +24,7 @@ logger = logging.getLogger("multimodal.parser")
 
 class LabIndicator(BaseModel):
     indicator_name: str = Field(description="Standard Chinese name of the test indicator")
-    value: float | str = Field(description="Numeric or textual result value")
+    value: float | str | None = Field(default=None, description="Numeric or textual result value; may be null if unreadable")
     unit: str = Field(default="")
     reference_range: str = Field(default="", description="Normal range, e.g. '3.5-5.5'")
     abnormal: bool = Field(default=False)
@@ -313,7 +313,7 @@ class LabReportParser:
 
         return LabIndicator(
             indicator_name=name,
-            value=numeric_value if numeric_value is not None else value,
+            value=numeric_value if numeric_value is not None else (value if value not in (None, "") else None),
             unit=unit,
             reference_range=ref_range,
             abnormal=abnormal,
