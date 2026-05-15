@@ -730,7 +730,7 @@ Use Markdown formatting for readability.""",
 @router.api_route("/route/stream/continue", methods=["GET", "POST"])
 async def route_stream_continue(
     request: Request,
-    ctx: CurrentUserContext,
+    ctx: CurrentUserContextLenient,
     session_id: str = Query(...),
     question_id: str = Query(...),
     db: AsyncSession = Depends(get_db),
