@@ -101,12 +101,17 @@ async def get_current_user_or_guest(
 ) -> UserContext:
     """Resolve current user or guest from Bearer token, X-Guest-Token header, Cookie, or URL query param.
 
-    Priority: Bearer Header > X-Guest-Token Header > Cookie(auth_token) > URL query param (token/guest_token)
+    Priority: Bearer Header > X-Guest-Token Header > URL query param (token/guest_token) > Cookie(auth_token)
+    
+    URL query param takes precedence over Cookie because EventSource (SSE)
+    cannot set custom headers or control cookie behavior, so the frontend
+    explicitly passes the token via URL query parameter. An old auth_token
+    cookie from a previous session must not override it.
     """
-    # Try Bearer token first, then X-Guest-Token, then Cookie fallback, then URL query param
+    # Resolve effective token with correct priority
     cookie_token = request.cookies.get("auth_token")
     query_token = request.query_params.get("token") or request.query_params.get("guest_token")
-    effective_token = token or x_guest_token or cookie_token or query_token
+    effective_token = token or x_guest_token or query_token or cookie_token
     user, platform, is_guest, guest_id = await _resolve_token(effective_token, db)
 
     if user is None and not is_guest:
