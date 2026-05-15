@@ -354,21 +354,32 @@ class InterviewOrchestrator:
                 action = "ask"
                 return [], state, [], action, reasoning
 
-            sufficient = await self._assess_sufficiency(state)
-            if not sufficient:
-                # LLM assessment failed or information is genuinely insufficient.
-                # If dedup filtered everything, return original questions to keep flow going.
-                if not deduped and all_questions:
-                    self.logger.info("[ORCH] sufficiency=False + dedup empty — returning original questions to avoid deadlock")
+            # Zero-card fallback: LLM generated absolutely nothing — retry with generic question
+            if not all_questions:
+                self.logger.warning("[ORCH] zero questions from both tracks — sending generic prompt")
+                fallback = QuestionTemplate(
+                    question_id="hpi_free_text",
+                    question="请详细描述您的不适感受，包括持续时间、严重程度和伴随症状",
+                    type="text",
+                    hint="越详细越好",
+                )
+                return [fallback], state, [], "ask", reasoning
+
+            # Natural endpoint: all new questions were duplicates after dedup.
+            # No more unique questions → interview is complete → synthesize.
+            if len(state.asked_questions) < InterviewState.MIN_QUESTIONS_BEFORE_SYNTHESIS:
+                self.logger.info("[ORCH] dedup empty but asked=%d < min=%d — need more questions",
+                               len(state.asked_questions), InterviewState.MIN_QUESTIONS_BEFORE_SYNTHESIS)
+                if all_questions:
                     return all_questions[:2], state, [], "ask", reasoning
-                self.logger.info("[ORCH] sufficiency=False, returning to ask mode")
                 action = "ask"
                 return [], state, [], action, reasoning
+
             state.is_sufficient = True
             state.phase = "completed"
-            state.regeneration_count = 1  # Already synthesized — no regeneration
+            state.regeneration_count = 1
             action = "synthesize"
-            self.logger.info("[ORCH] no new questions — synthesizing (LLM assessed sufficient=True)")
+            self.logger.info("[ORCH] natural endpoint — all duplicates, no pending, synthesizing")
             return [], state, [], action, reasoning
 
         action = "ask"
