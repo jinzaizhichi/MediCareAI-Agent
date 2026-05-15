@@ -353,6 +353,9 @@ class InterviewState:
         if self.red_flags_detected:
             lines.append(f"  ⚠️ 危险信号: {', '.join(self.red_flags_detected)}")
         # Lab reports with abnormal indicators
+        import logging
+        _log = logging.getLogger("debug.t3")
+        _log.info("[DEBUG-T3] get_summary: lab_reports count=%d", len(self.lab_reports))
         for report in self.lab_reports:
             if report.get("overall_confidence", 0) >= 0.7:
                 indicators = report.get("indicators", [])
@@ -365,6 +368,7 @@ class InterviewState:
                             f"{ind.get('value', '?')} {ind.get('unit', '')}"
                             f"{abnormal_mark}"
                         )
+        _log.info("[DEBUG-T3] get_summary: summary length=%d chars", len("\n".join(lines)))
         return "\n".join(lines)
 
 

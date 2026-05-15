@@ -249,8 +249,10 @@ class InterviewOrchestrator:
         patient_history: str | None = None,
         knowledge_context: str = "",
     ) -> tuple[list[QuestionTemplate], InterviewState, list[str], str, str]:
+        self.logger.info("[DEBUG-DIAG] decide_next: phase=%s regeneration=%d", state.phase, state.regeneration_count or 0)
         if state.phase == "completed":
             if (state.regeneration_count or 0) >= 1:
+                self.logger.info("[DEBUG-DIAG] decide_next: regeneration exhausted → action=completed")
                 return [], state, [], "completed", ""
             state.phase = "interviewing"
             state.regeneration_count += 1

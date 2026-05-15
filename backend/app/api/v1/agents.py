@@ -405,6 +405,11 @@ async def store_lab_reports(
     await db.commit()
     # Also store in bridge for frontend-generated session IDs
     _session_lab_bridge[session_id] = existing
+    import logging as _log
+    _l = _log.getLogger("debug.t3")
+    _l.info("[DEBUG-T3] store_lab_reports: session_id=%s db_id=%s reports=%d total_indicators=%d",
+            session_id, str(_s.id), len(existing),
+            sum(len(r.get('indicators', [])) for r in existing))
     return {"status": "stored", "session_id": str(_s.id), "count": len(existing)}
 
 
@@ -582,20 +587,29 @@ Use Markdown formatting for readability.""",
             session_id: str | None = None
             query_sid = request.query_params.get("session_id")
             if query_sid:
+                import logging as _logmod
+                _log = _logmod.getLogger("debug.t3")
+                _log.info("[DEBUG-T3] route_stream: query_sid=%s", query_sid)
                 # Try DB lookup first (real UUID sessions)
                 try:
                     _qs = await db.get(AgentSession, uuid.UUID(query_sid))
                     if _qs and _qs.context:
                         lab_reports = _qs.context.get("lab_reports", [])
                         if lab_reports:
+                            _log.info("[DEBUG-T3] route_stream: DB lookup found %d reports", len(lab_reports))
                             _inject_lab_context(messages, lab_reports)
+                        else:
+                            _log.info("[DEBUG-T3] route_stream: DB session exists but no lab_reports in context")
                 except (ValueError, Exception):
-                    pass
+                    _log.info("[DEBUG-T3] route_stream: DB lookup failed (non-UUID or missing)")
                 # Fallback: check in-memory bridge for frontend-generated session IDs
                 if not any("已上传的检查报告" in m.get("content", "") for m in messages):
                     lab_reports = _session_lab_bridge.get(query_sid, [])
                     if lab_reports:
+                        _log.info("[DEBUG-T3] route_stream: bridge found %d reports for key=%s", len(lab_reports), query_sid)
                         _inject_lab_context(messages, lab_reports)
+                    else:
+                        _log.warning("[DEBUG-T3] route_stream: bridge EMPTY for key=%s, bridge_keys=%s", query_sid, list(_session_lab_bridge.keys()))
 
             # 真实工具调用 + 流式输出
             if intent == "diagnosis":
