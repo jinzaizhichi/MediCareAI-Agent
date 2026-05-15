@@ -354,17 +354,6 @@ class InterviewOrchestrator:
                 action = "ask"
                 return [], state, [], action, reasoning
 
-            # Zero-card fallback: LLM generated absolutely nothing — retry with generic question
-            if not all_questions:
-                self.logger.warning("[ORCH] zero questions from both tracks — sending generic prompt")
-                fallback = QuestionTemplate(
-                    question_id="hpi_free_text",
-                    question="请详细描述您的不适感受，包括持续时间、严重程度和伴随症状",
-                    type="text",
-                    hint="越详细越好",
-                )
-                return [fallback], state, [], "ask", reasoning
-
             # Natural endpoint: all new questions were duplicates after dedup.
             # No more unique questions → interview is complete → synthesize.
             if len(state.asked_questions) < InterviewState.MIN_QUESTIONS_BEFORE_SYNTHESIS:
