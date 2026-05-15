@@ -34,6 +34,25 @@ from app.tools.registry import GLOBAL_REGISTRY
 
 router = APIRouter()
 
+# In-memory bridge: frontend session_id (string) → lab report data
+# Frontend generates local IDs (non-UUID), lab reports are posted before
+# the backend creates the real DB session. This bridge ensures lab data
+# reaches the diagnosis even when session IDs differ.
+_session_lab_bridge: dict[str, list[dict[str, Any]]] = {}
+
+
+def _inject_lab_context(messages: list[dict[str, str]], lab_reports: list[dict[str, Any]]) -> None:
+    """Format lab reports and insert into the message list as a system prompt."""
+    lab_text = "**已上传的检查报告解析结果：**\n"
+    for r in lab_reports:
+        indicators = r.get("indicators", [])
+        if indicators:
+            lab_text += f"\n报告 (置信度: {int(r.get('overall_confidence', 0) * 100)}%):\n"
+            for ind in indicators[:30]:
+                abn = " [异常]" if ind.get("abnormal") else ""
+                lab_text += f"  - {ind.get('indicator_name', '?')}: {ind.get('value', '?')} {ind.get('unit', '')}{abn}\n"
+    messages.insert(0, {"role": "system", "content": lab_text})
+
 
 # ---------------------------------------------------------------------------
 # Helper: DiagnosisReport → Markdown
@@ -360,18 +379,33 @@ async def store_lab_reports(
     reports: list[dict[str, Any]] = Body(default_factory=list),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """Store parsed lab report data in the session context for diagnosis."""
+    """Store parsed lab report data for a session (creates session if needed)."""
     import uuid as _uuid
-    _s = await db.get(AgentSession, _uuid.UUID(session_id))
+    try:
+        sid = _uuid.UUID(session_id)
+        _s = await db.get(AgentSession, sid)
+    except ValueError:
+        _s = None
     if not _s:
-        raise HTTPException(status_code=404, detail="Session not found")
-    ctx = _s.context or {}
+        _s = AgentSession(
+            id=_uuid.uuid4(),
+            session_type=AgentSessionType.DIAGNOSIS,
+            status=AgentSessionStatus.ACTIVE,
+            intent="diagnosis",
+            context={},
+        )
+        db.add(_s)
+        await db.commit()
+        await db.refresh(_s)
+    ctx = dict(_s.context or {})
     existing = ctx.get("lab_reports", [])
     existing.extend(reports)
     ctx["lab_reports"] = existing
     _s.context = ctx
     await db.commit()
-    return {"status": "stored", "count": len(existing)}
+    # Also store in bridge for frontend-generated session IDs
+    _session_lab_bridge[session_id] = existing
+    return {"status": "stored", "session_id": str(_s.id), "count": len(existing)}
 
 
 @router.get("/route/stream")
@@ -548,22 +582,20 @@ Use Markdown formatting for readability.""",
             session_id: str | None = None
             query_sid = request.query_params.get("session_id")
             if query_sid:
+                # Try DB lookup first (real UUID sessions)
                 try:
                     _qs = await db.get(AgentSession, uuid.UUID(query_sid))
                     if _qs and _qs.context:
                         lab_reports = _qs.context.get("lab_reports", [])
                         if lab_reports:
-                            lab_text = "**已上传的检查报告解析结果：**\n"
-                            for r in lab_reports:
-                                indicators = r.get("indicators", [])
-                                if indicators:
-                                    lab_text += f"\n报告 (置信度: {int(r.get('overall_confidence', 0) * 100)}%):\n"
-                                    for ind in indicators[:30]:  # limit to avoid token overflow
-                                        abn = " [异常]" if ind.get("abnormal") else ""
-                                        lab_text += f"  - {ind.get('indicator_name', '?')}: {ind.get('value', '?')} {ind.get('unit', '')}{abn}\n"
-                            messages.insert(0, {"role": "system", "content": lab_text})
-                except Exception:
+                            _inject_lab_context(messages, lab_reports)
+                except (ValueError, Exception):
                     pass
+                # Fallback: check in-memory bridge for frontend-generated session IDs
+                if not any("已上传的检查报告" in m.get("content", "") for m in messages):
+                    lab_reports = _session_lab_bridge.get(query_sid, [])
+                    if lab_reports:
+                        _inject_lab_context(messages, lab_reports)
 
             # 真实工具调用 + 流式输出
             if intent == "diagnosis":
