@@ -806,20 +806,18 @@ async def route_stream_continue(
             return
 
         # Interview complete — proceed to diagnosis using structured summary
-        # Redis lock first — prevent concurrent diagnoses from flooding SearXNG
-        from app.db.redis_client import get_redis
-        redis_client = get_redis()
-        lock_key = f"diag_lock:{session_id}"
-        locked = await redis_client.set(lock_key, "1", nx=True, ex=300)
-        if not locked:
-            yield f"event: complete\ndata: {json.dumps({'status': 'already_diagnosed', 'session_id': session_id})}\n\n"
-            return
-
         _msg_start = "🧠 问诊完成，正在整理问诊信息..."
         yield f"event: thinking\ndata: {json.dumps({'step': 'diagnosis', 'message': _msg_start})}\n\n"
 
-        # Mark as completed in session context
+        # Mark as completed BEFORE generating report — with Redis lock
         try:
+            from app.db.redis_client import get_redis
+            redis_client = get_redis()
+            lock_key = f"diag_lock:{session_id}"
+            locked = await redis_client.set(lock_key, "1", nx=True, ex=60)
+            if not locked:
+                yield f"event: complete\ndata: {json.dumps({'status': 'already_diagnosed', 'session_id': session_id})}\n\n"
+                return
             async with async_session_maker() as _db:
                 _s = await _db.get(AgentSession, uuid.UUID(session_id))
                 if _s and _s.context:

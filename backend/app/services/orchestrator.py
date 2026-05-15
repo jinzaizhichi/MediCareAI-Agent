@@ -353,6 +353,7 @@ class InterviewOrchestrator:
             sufficient = await self._assess_sufficiency(state)
             state.is_sufficient = True
             state.phase = "completed"
+            state.regeneration_count = 1  # Already synthesized — no regeneration
             action = "synthesize"
             self.logger.info("[ORCH] no new questions — synthesizing (LLM assessed sufficient=%s)", sufficient)
             return [], state, [], action, reasoning
