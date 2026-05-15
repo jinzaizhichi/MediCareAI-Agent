@@ -57,7 +57,6 @@ export default function ChatPage() {
 
     const initAuth = async () => {
       if (getToken()) return;
-      // Try to reuse stored guest session; if expired, create fresh one
       const stored = agentApi.getGuestStatus();
       if (stored) {
         try {
@@ -67,10 +66,11 @@ export default function ChatPage() {
             return;
           }
         } catch {
-          agentApi.clearGuestToken();
+          // Token invalid — will create new one below
         }
       }
-      // Create new guest session
+      // Clear any stale token before creating new session
+      agentApi.clearGuestToken();
       try {
         await agentApi.createGuestSession();
         setGuestStatus(agentApi.getGuestStatus());
@@ -135,19 +135,29 @@ export default function ChatPage() {
     async (text: string) => {
       if (isStreaming || !currentSessionId) return;
 
-      // Refresh guest token if expired before sending diagnosis
+      // Ensure valid guest session before every diagnosis
       if (!getToken()) {
         const guestToken = localStorage.getItem('guest_token');
         if (guestToken) {
           try {
             const status = await agentApi.fetchGuestStatus();
-            if (!status) {
-              agentApi.clearGuestToken();
-              await agentApi.createGuestSession();
-            }
+            if (!status) throw new Error('token invalid');
           } catch {
+            // Token expired or invalid — clear and refresh
             agentApi.clearGuestToken();
+            try {
+              await agentApi.createGuestSession();
+            } catch {
+              console.error('Guest session refresh failed');
+            }
+          }
+        }
+        // No guest token at all — create one
+        if (!localStorage.getItem('guest_token')) {
+          try {
             await agentApi.createGuestSession();
+          } catch {
+            console.error('Guest session creation failed');
           }
         }
       }
