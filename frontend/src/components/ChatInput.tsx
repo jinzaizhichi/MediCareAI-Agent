@@ -11,12 +11,14 @@ interface Props {
   disabled?: boolean;
   quickReplies?: string[];
   onQuickReply?: (text: string) => void;
+  onFileUpload?: (file: File) => void;
 }
 
-export default function ChatInput({ onSend, disabled = false, quickReplies, onQuickReply }: Props) {
+export default function ChatInput({ onSend, disabled = false, quickReplies, onQuickReply, onFileUpload }: Props) {
   const [text, setText] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSend = () => {
     const trimmed = text.trim();
@@ -33,6 +35,16 @@ export default function ChatInput({ onSend, disabled = false, quickReplies, onQu
     }
   };
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && onFileUpload) {
+      if (file.size <= 10 * 1024 * 1024) {
+        onFileUpload(file);
+      }
+    }
+    if (e.target) e.target.value = '';
+  };
+
   return (
     <Box>
       {quickReplies && quickReplies.length > 0 && (
@@ -45,8 +57,19 @@ export default function ChatInput({ onSend, disabled = false, quickReplies, onQu
       )}
 
       <Paper elevation={2} sx={{ display: 'flex', alignItems: 'flex-end', gap: 1, p: 1.5, borderRadius: 3, border: '1px solid #F5E6D3', bgcolor: 'background.paper' }}>
-        <IconButton size="small" sx={{ color: 'text.secondary' }} disabled={disabled}><AttachFileIcon fontSize="small" /></IconButton>
-        <IconButton size="small" sx={{ color: 'text.secondary' }} disabled={disabled}><ImageIcon fontSize="small" /></IconButton>
+        <input
+          ref={fileInputRef}
+          type="file"
+          hidden
+          accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx,.txt"
+          onChange={handleFileSelect}
+        />
+        <IconButton size="small" sx={{ color: 'text.secondary' }} disabled={disabled} onClick={() => fileInputRef.current?.click()}>
+          <AttachFileIcon fontSize="small" />
+        </IconButton>
+        <IconButton size="small" sx={{ color: 'text.secondary' }} disabled={disabled} onClick={() => fileInputRef.current?.click()}>
+          <ImageIcon fontSize="small" />
+        </IconButton>
 
         <TextField
           inputRef={inputRef}

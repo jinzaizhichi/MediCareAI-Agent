@@ -242,6 +242,8 @@ class InterviewState:
     question_texts: dict[str, str] = field(default_factory=dict)
     # Regeneration control: max 1 regeneration after initial diagnosis
     regeneration_count: int = 0
+    # Lab reports from multimodal parsing (Track 3)
+    lab_reports: list[dict[str, Any]] = field(default_factory=list)
 
     # Internal keys for storing differential diagnosis info in collected_info (DB compatibility)
     _DIFF_KEY = "__differential_diagnoses__"
@@ -267,6 +269,7 @@ class InterviewState:
             "question_phase_keys": self.question_phase_keys,
             "question_texts": self.question_texts,
             "regeneration_count": self.regeneration_count,
+            "lab_reports": self.lab_reports,
         }
 
     @classmethod
@@ -290,6 +293,7 @@ class InterviewState:
             question_phase_keys=data.get("question_phase_keys", {}),
             question_texts=data.get("question_texts", {}),
             regeneration_count=(data.get("regeneration_count") or 0),
+            lab_reports=data.get("lab_reports", []),
         )
 
     # ---- Differential diagnosis helpers (store in collected_info for compatibility) ----
@@ -348,6 +352,19 @@ class InterviewState:
                 lines.append(f"    {flag} {d.diagnosis} ({d.confidence})")
         if self.red_flags_detected:
             lines.append(f"  ⚠️ 危险信号: {', '.join(self.red_flags_detected)}")
+        # Lab reports with abnormal indicators
+        for report in self.lab_reports:
+            if report.get("overall_confidence", 0) >= 0.7:
+                indicators = report.get("indicators", [])
+                if indicators:
+                    lines.append("  实验室检查:")
+                    for ind in indicators:
+                        abnormal_mark = " [异常]" if ind.get("abnormal") else ""
+                        lines.append(
+                            f"    - {ind.get('indicator_name', '?')}: "
+                            f"{ind.get('value', '?')} {ind.get('unit', '')}"
+                            f"{abnormal_mark}"
+                        )
         return "\n".join(lines)
 
 

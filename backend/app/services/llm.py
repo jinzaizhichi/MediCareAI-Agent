@@ -12,6 +12,7 @@ No hardcoded API keys or provider defaults.
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 from collections.abc import AsyncIterator
@@ -47,15 +48,53 @@ async def _get_provider_config(
     db: AsyncSession | None,
     provider: str,
     platform: str | None = None,
+    model_type: str = "diagnosis",
 ) -> dict:
-    """Get provider config from database with platform resolution."""
+    """Get provider config from database with platform and model_type resolution."""
     if db is None:
         raise ValueError(
             f"Provider '{provider}' is not configured. "
             f"Please add it via /api/v1/admin/llm-providers."
         )
 
-    # Try exact platform match first
+    # Try exact platform + model_type match first
+    if platform:
+        result = await db.execute(
+            select(LLMProviderConfig).where(
+                LLMProviderConfig.provider == provider,
+                LLMProviderConfig.platform == platform.strip().lower(),
+                LLMProviderConfig.model_type == model_type,
+                LLMProviderConfig.is_active == True,
+            ).limit(1)
+        )
+        config = result.scalars().first()
+        if config:
+            decrypted_key = decrypt_value(config.api_key_encrypted)
+            return {
+                "base_url": config.base_url,
+                "api_key": decrypted_key or "",
+                "default_model": config.default_model,
+            }
+
+    # Global config with model_type match
+    result = await db.execute(
+        select(LLMProviderConfig).where(
+            LLMProviderConfig.provider == provider,
+            LLMProviderConfig.platform.is_(None),
+            LLMProviderConfig.model_type == model_type,
+            LLMProviderConfig.is_active == True,
+        ).limit(1)
+    )
+    config = result.scalars().first()
+    if config:
+        decrypted_key = decrypt_value(config.api_key_encrypted)
+        return {
+            "base_url": config.base_url,
+            "api_key": decrypted_key or "",
+            "default_model": config.default_model,
+        }
+
+    # Fallback: platform match without model_type filter (compat)
     if platform:
         result = await db.execute(
             select(LLMProviderConfig).where(
@@ -73,7 +112,7 @@ async def _get_provider_config(
                 "default_model": config.default_model,
             }
 
-    # Fallback to global config (platform=NULL)
+    # Final fallback: global config without model_type filter
     result = await db.execute(
         select(LLMProviderConfig).where(
             LLMProviderConfig.provider == provider,
@@ -91,7 +130,8 @@ async def _get_provider_config(
         }
 
     raise ValueError(
-        f"Provider '{provider}' is not configured for platform '{platform or 'global'}'. "
+        f"Provider '{provider}' is not configured for platform '{platform or 'global'}' "
+        f"with model_type '{model_type}'. "
         f"Please add it via /api/v1/admin/llm-providers."
     )
 
@@ -448,6 +488,91 @@ class LLMService:
 
         data = json.loads(content)
         return output_schema.model_validate(data)
+
+    async def chat_vision(
+        self,
+        text_prompt: str,
+        image_bytes: bytes,
+        model: str | None = None,
+        max_tokens: int | None = None,
+        system_prompt: str | None = None,
+        disable_thinking: bool = True,
+    ) -> LLMResponse:
+        """Send a vision request with base64-encoded image.
+
+        Constructs array[object] content format required by Kimi vision API
+        (k2.5/k2.6). Standard chat() cannot handle this because its messages
+        type hint is list[dict[str, str]].
+
+        Args:
+            text_prompt: The text instruction for the vision model.
+            image_bytes: Raw image bytes (JPEG/PNG/WEBP/GIF).
+            model: Optional model override.
+            max_tokens: Optional max tokens override.
+            system_prompt: Optional system prompt.
+            disable_thinking: Disable thinking mode (saves tokens).
+
+        Returns:
+            LLMResponse with vision model output.
+        """
+        client = await self._get_client()
+        default_model = await self._get_default_model()
+
+        image_b64 = base64.b64encode(image_bytes).decode()
+        mime = self._detect_image_mime(image_bytes)
+        image_url = f"data:image/{mime};base64,{image_b64}"
+
+        msgs: list[dict[str, Any]] = []
+        if system_prompt:
+            msgs.append({"role": "system", "content": system_prompt})
+        msgs.append({
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": image_url}},
+                {"type": "text", "text": text_prompt},
+            ],
+        })
+
+        kwargs: dict[str, Any] = dict(
+            model=model or default_model,
+            messages=msgs,  # type: ignore[arg-type]
+            max_tokens=max_tokens,
+            stream=False,
+        )
+        if disable_thinking:
+            kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
+
+        logger.info(
+            "[LLM_VISION] provider=%s model=%s mime=%s max_tokens=%d",
+            self.provider, model or default_model, mime, max_tokens or 0,
+        )
+
+        response = await client.chat.completions.create(**kwargs)
+
+        content = response.choices[0].message.content or ""
+        usage = response.usage
+        return LLMResponse(
+            content=content,
+            model=response.model,
+            provider=self.provider or "",
+            usage_prompt_tokens=usage.prompt_tokens if usage else 0,
+            usage_completion_tokens=usage.completion_tokens if usage else 0,
+            finish_reason=response.choices[0].finish_reason,
+        )
+
+    @staticmethod
+    def _detect_image_mime(image_bytes: bytes) -> str:
+        """Detect image MIME type from magic bytes."""
+        if image_bytes[:4] == b"\x89PNG":
+            return "png"
+        if image_bytes[:2] == b"\xff\xd8":
+            return "jpeg"
+        if image_bytes[:4] in (b"RIFF", b"WEBP"):
+            if image_bytes[8:12] == b"WEBP":
+                return "webp"
+        if image_bytes[:6] in (b"GIF87a", b"GIF89a"):
+            return "gif"
+        return "jpeg"  # default fallback
 
     async def health_check(self) -> dict:
         """Quick health check by listing available models."""

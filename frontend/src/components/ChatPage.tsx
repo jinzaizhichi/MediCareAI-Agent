@@ -10,8 +10,9 @@ import {
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
-import type { ChatMessageItem, ChatSession, GuestStatus, SSEEvent, DiagnosisReport, WorkflowStep } from '../types/agent';
+import type { ChatMessageItem, ChatSession, GuestStatus, SSEEvent, DiagnosisReport, WorkflowStep, LabReportResult } from '../types/agent';
 import { agentApi } from '../api/agent';
+import { uploadDocument, getParseResult } from '../api/documents';
 import { getToken } from '../api/client';
 import Sidebar from './Sidebar';
 import ChatMessage from './ChatMessage';
@@ -586,6 +587,95 @@ export default function ChatPage() {
     [isStreaming, handleSend]
   );
 
+  const handleFileUpload = useCallback(
+    async (file: File) => {
+      const uploadId = generateId();
+
+      // Insert processing message
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: uploadId,
+          role: 'agent',
+          content: '',
+          timestamp: new Date(),
+          uploadStatus: 'processing',
+          uploadFileName: file.name,
+        },
+      ]);
+
+      try {
+        const uploadRes = await uploadDocument(file);
+        const fileId = uploadRes.file_id;
+
+        // Poll for result
+        const poll = setInterval(async () => {
+          try {
+            const result = await getParseResult(fileId);
+
+            if (result.status === 'completed' && result.result) {
+              clearInterval(poll);
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === uploadId
+                    ? {
+                        ...m,
+                        uploadStatus: 'completed',
+                        labReport: result.result,
+                        content: `📄 ${file.name} 解析完成`,
+                      }
+                    : m
+                )
+              );
+            } else if (result.status === 'failed') {
+              clearInterval(poll);
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === uploadId
+                    ? {
+                        ...m,
+                        uploadStatus: 'failed',
+                        uploadError: result.error || '解析失败',
+                        content: `❌ ${file.name} 解析失败`,
+                      }
+                    : m
+                )
+              );
+            }
+          } catch {
+            // Keep polling on transient errors
+          }
+        }, 1500);
+
+        // Timeout after 120 seconds
+        setTimeout(() => {
+          clearInterval(poll);
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === uploadId && m.uploadStatus === 'processing'
+                ? { ...m, uploadStatus: 'failed', uploadError: '解析超时，请重试', content: `❌ ${file.name} 解析超时` }
+                : m
+            )
+          );
+        }, 120000);
+      } catch (err: any) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === uploadId
+              ? {
+                  ...m,
+                  uploadStatus: 'failed',
+                  uploadError: err.message || '上传失败',
+                  content: `❌ ${file.name} 上传失败`,
+                }
+              : m
+          )
+        );
+      }
+    },
+    []
+  );
+
   const handleNewChat = useCallback(() => {
     startNewSession();
   }, [startNewSession]);
@@ -674,6 +764,7 @@ export default function ChatPage() {
               disabled={isStreaming}
               quickReplies={messages.length <= 2 ? QUICK_REPLIES : undefined}
               onQuickReply={handleQuickReply}
+              onFileUpload={handleFileUpload}
             />
           )}
         </Box>

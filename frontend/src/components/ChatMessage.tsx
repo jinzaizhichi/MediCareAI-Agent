@@ -1,4 +1,4 @@
-import { Box, Typography, Avatar, Paper } from '@mui/material';
+import { Box, Typography, Avatar, Paper, LinearProgress } from '@mui/material';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import PersonIcon from '@mui/icons-material/Person';
 import ReactMarkdown from 'react-markdown';
@@ -6,6 +6,7 @@ import remarkGfm from 'remark-gfm';
 import type { ChatMessageItem } from '../types/agent';
 import DiagnosisCard from './DiagnosisCard';
 import AgentWorkflow from './AgentWorkflow';
+import LabReportCard from './LabReportCard';
 
 interface Props { message: ChatMessageItem; onInterviewAnswer?: (questionId: string, answer: string) => void; }
 
@@ -21,6 +22,40 @@ export default function ChatMessage({ message, onInterviewAnswer }: Props) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', my: 1 }}>
         <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>{message.content}</Typography>
+      </Box>
+    );
+  }
+
+  if (isAgent && message.uploadStatus === 'processing') {
+    return (
+      <Box sx={{ px: { xs: 1, sm: 2 }, mb: 2 }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', maxWidth: '85%' }}>
+          <Paper elevation={0} sx={{ p: 2, borderRadius: '4px 16px 16px 16px', background: '#F5E6D3' }}>
+            <Typography variant="body2" sx={{ mb: 1 }}>
+              📄 {message.uploadFileName || '文件'} 正在解析...
+            </Typography>
+            <LinearProgress sx={{ borderRadius: 1, bgcolor: '#E8D5C0', '& .MuiLinearProgress-bar': { bgcolor: warmPrimary } }} />
+          </Paper>
+        </Box>
+      </Box>
+    );
+  }
+
+  if (isAgent && message.uploadStatus === 'failed') {
+    return (
+      <Box sx={{ px: { xs: 1, sm: 2 }, mb: 2 }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', maxWidth: '85%' }}>
+          <Paper elevation={0} sx={{ p: 2, borderRadius: '4px 16px 16px 16px', background: '#FFF0F0', border: '1px solid #FFCDD2' }}>
+            <Typography variant="body2" color="error">
+              {message.content}
+            </Typography>
+            {message.uploadError && (
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                {message.uploadError}
+              </Typography>
+            )}
+          </Paper>
+        </Box>
       </Box>
     );
   }
@@ -111,6 +146,10 @@ export default function ChatMessage({ message, onInterviewAnswer }: Props) {
         )}
 
         {isAgent && message.structured && <DiagnosisCard report={message.structured} />}
+
+        {isAgent && message.labReport && (
+          <LabReportCard report={message.labReport} />
+        )}
 
         {isAgent && message.toolCalls && message.toolCalls.length > 0 && (
           <Box sx={{ mt: 1 }}>

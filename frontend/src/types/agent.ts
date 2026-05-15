@@ -83,6 +83,49 @@ export interface ChatMessageItem {
   interviewQuestions?: InterviewQuestion[];
   timestamp: Date;
   isStreaming?: boolean;
+  /** File upload status */
+  uploadStatus?: 'processing' | 'completed' | 'failed';
+  uploadFileName?: string;
+  labReport?: LabReportResult;
+  uploadError?: string;
+}
+
+/** 化验单指标 */
+export interface LabIndicator {
+  indicator_name: string;
+  value: number | string;
+  unit: string;
+  reference_range: string;
+  abnormal: boolean;
+  abnormal_direction: 'high' | 'low' | null;
+  loinc_code: string;
+  confidence: number;
+}
+
+/** 化验单解析结果 */
+export interface LabReportResult {
+  file_id: string;
+  indicators: LabIndicator[];
+  overall_confidence: number;
+  requires_manual_review: boolean;
+  raw_response: string;
+  error: string;
+}
+
+/** 文档上传响应 */
+export interface DocumentUploadResponse {
+  file_id: string;
+  filename: string;
+  parse_method: 'file-extract' | 'image';
+  status: 'processing' | 'completed' | 'failed';
+}
+
+/** 文档解析结果 */
+export interface DocumentParseResult {
+  status: 'processing' | 'completed' | 'failed';
+  file_id: string;
+  result?: LabReportResult;
+  error?: string;
 }
 
 /** 会话 */

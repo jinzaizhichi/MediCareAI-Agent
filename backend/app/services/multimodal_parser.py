@@ -11,8 +11,9 @@ import logging
 from typing import Optional
 
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.llm import LLMService
+from app.services.llm import LLMService, get_llm_service
 
 logger = logging.getLogger("multimodal.parser")
 
@@ -216,51 +217,46 @@ class LabReportParser:
     )
 
     def __init__(self, llm: LLMService):
+        """Initialize with a pre-configured LLMService.
+
+        For multimodal vision, create the LLMService via:
+            llm = await get_llm_service(db, model_type="multimodal")
+            parser = LabReportParser(llm)
+        """
         self.llm = llm
 
     async def parse_image(self, image_data: bytes, file_id: str = "") -> LabReportResult:
-        """Parse a lab report image into structured indicators.
+        """Parse a lab report image into structured indicators via Kimi vision API.
+
+        Uses chat_vision() which constructs the array[object] content format
+        required by Kimi k2.5/k2.6 vision models.
 
         Args:
-            image_data: Raw image bytes (JPEG/PNG).
+            image_data: Raw image bytes (JPEG/PNG/WEBP/GIF).
             file_id: Optional identifier for the uploaded file.
 
         Returns:
             LabReportResult with extracted indicators and confidence assessment.
         """
-        base64_image = base64.b64encode(image_data).decode("utf-8")
-        mime_type = self._detect_mime(image_data)
-
-        vision_message = {
-            "role": "user",
-            "content": [
-                {
-                    "type": "text",
-                    "text": (
-                        "请分析这张化验单/检查报告图片，提取所有检测指标。\n\n"
-                        "对每个指标输出JSON对象，包含：\n"
-                        "- indicator_name: 指标的标准中文名称\n"
-                        "- value: 检测数值（数字或文本）\n"
-                        "- unit: 单位\n"
-                        "- reference_range: 参考范围（如图上标注了的话）\n"
-                        "- abnormal: 是否异常（基于参考范围判断）\n"
-                        "- abnormal_direction: \"high\"或\"low\"（异常方向，正常则为null）\n"
-                        "- confidence: 你对该指标提取的置信度(0.0-1.0)\n\n"
-                        "返回格式：JSON数组，如 [{\"indicator_name\":\"白细胞计数\",\"value\":7.5,...}]"
-                    ),
-                },
-                {
-                    "type": "image_url",
-                    "image_url": {"url": f"data:{mime_type};base64,{base64_image}"},
-                },
-            ],
-        }
+        text_prompt = (
+            "请分析这张化验单/检查报告图片，提取所有检测指标。\n\n"
+            "对每个指标输出JSON对象，包含：\n"
+            "- indicator_name: 指标的标准中文名称\n"
+            "- value: 检测数值（数字或文本）\n"
+            "- unit: 单位\n"
+            "- reference_range: 参考范围（如图上标注了的话）\n"
+            "- abnormal: 是否异常（基于参考范围判断）\n"
+            "- abnormal_direction: \"high\"或\"low\"（异常方向，正常则为null）\n"
+            "- confidence: 你对该指标提取的置信度(0.0-1.0)\n\n"
+            "返回格式：JSON数组，如 [{\"indicator_name\":\"白细胞计数\",\"value\":7.5,...}]"
+        )
 
         result = LabReportResult(file_id=file_id)
 
         try:
-            response = await self.llm.chat(
-                messages=[vision_message],
+            response = await self.llm.chat_vision(
+                text_prompt=text_prompt,
+                image_bytes=image_data,
                 system_prompt=self.SYSTEM_PROMPT,
                 max_tokens=4096,
             )
