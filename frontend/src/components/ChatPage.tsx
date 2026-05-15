@@ -151,7 +151,11 @@ export default function ChatPage() {
       const completedReports = messagesRef.current
         .filter(m => m.uploadStatus === 'completed' && m.labReport)
         .map(m => m.labReport!);
+      console.log('[DEBUG] handleSend: messages count:', messagesRef.current.length,
+        'completedReports:', completedReports.length,
+        'uploadStatuses:', messagesRef.current.map(m => m.uploadStatus).filter(Boolean));
       if (completedReports.length > 0) {
+        console.log('[DEBUG] Posting lab reports to session:', currentSessionId);
         try {
           await fetch(`/api/v1/agents/sessions/${currentSessionId}/lab-reports`, {
             method: 'POST',
