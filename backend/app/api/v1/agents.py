@@ -405,12 +405,47 @@ async def store_lab_reports(
     await db.commit()
     # Also store in bridge for frontend-generated session IDs
     _session_lab_bridge[session_id] = existing
+    # Also update the interview session if one exists with matching _frontend_sid
+    await _update_interview_session_lab_data(db, session_id, existing)
     import logging as _log
     _l = _log.getLogger("debug.t3")
     _l.info("[DEBUG-T3] store_lab_reports: session_id=%s db_id=%s reports=%d total_indicators=%d",
             session_id, str(_s.id), len(existing),
             sum(len(r.get('indicators', [])) for r in existing))
     return {"status": "stored", "session_id": str(_s.id), "count": len(existing)}
+
+
+async def _update_interview_session_lab_data(
+    db: AsyncSession, frontend_sid: str, lab_reports: list[dict[str, Any]]
+) -> None:
+    """Find the interview session with matching _frontend_sid and update its lab data."""
+    import uuid as _uuid
+    import logging as _log
+    _l = _log.getLogger("debug.t3")
+    try:
+        from sqlalchemy import select as _select
+        stmt = (
+            _select(AgentSession)
+            .where(AgentSession.session_type == AgentSessionType.DIAGNOSIS)
+            .where(AgentSession.status == AgentSessionStatus.ACTIVE)
+            .order_by(AgentSession.created_at.desc())
+            .limit(5)
+        )
+        result = await db.execute(stmt)
+        sessions = result.scalars().all()
+        for s in sessions:
+            ctx = s.context or {}
+            if ctx.get("_frontend_sid") == frontend_sid:
+                ctx["lab_reports"] = lab_reports
+                s.context = ctx
+                await db.commit()
+                _l.info("[DEBUG-T3] store_lab_reports: updated interview session %s with %d reports",
+                        str(s.id), len(lab_reports))
+                return
+        _l.info("[DEBUG-T3] store_lab_reports: no matching interview session found for _frontend_sid=%s",
+                frontend_sid)
+    except Exception as e:
+        _l.warning("[DEBUG-T3] store_lab_reports: failed to update interview session: %s", e)
 
 
 @router.get("/route/stream")
