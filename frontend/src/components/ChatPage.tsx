@@ -49,8 +49,6 @@ export default function ChatPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const didInit = useRef(false);
   const pendingSessionRef = useRef<{ sessionId: string; questionId: string } | null>(null);
-  const messagesRef = useRef<ChatMessageItem[]>(messages);
-  messagesRef.current = messages;  // keep ref in sync for useCallback closures
 
   // 初始化：检查认证状态，未登录时自动创建访客 session
   useEffect(() => {
@@ -144,26 +142,6 @@ export default function ChatPage() {
           await agentApi.createGuestSession();
         } catch {
           // Continue with whatever token we have — better than blocking send
-        }
-      }
-
-      // Post completed lab reports to the session before diagnosis
-      const completedReports = messagesRef.current
-        .filter(m => m.uploadStatus === 'completed' && m.labReport)
-        .map(m => m.labReport!);
-      console.log('[DEBUG] handleSend: messages count:', messagesRef.current.length,
-        'completedReports:', completedReports.length,
-        'uploadStatuses:', messagesRef.current.map(m => m.uploadStatus).filter(Boolean));
-      if (completedReports.length > 0) {
-        console.log('[DEBUG] Posting lab reports to session:', currentSessionId);
-        try {
-          await fetch(`/api/v1/agents/sessions/${currentSessionId}/lab-reports`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : { 'X-Guest-Token': localStorage.getItem('guest_token') || '' }) },
-            body: JSON.stringify(completedReports),
-          });
-        } catch {
-          // Non-critical — proceed without lab data
         }
       }
 
@@ -659,6 +637,20 @@ export default function ChatPage() {
                     : m
                 )
               );
+              // Immediately post completed lab report to the session
+              try {
+                const token = getToken();
+                await fetch(`/api/v1/agents/sessions/${currentSessionId}/lab-reports`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    ...(token ? { Authorization: `Bearer ${token}` } : { 'X-Guest-Token': localStorage.getItem('guest_token') || '' }),
+                  },
+                  body: JSON.stringify([result.result]),
+                });
+              } catch {
+                console.warn('[DEBUG] Failed to post lab report for:', file.name);
+              }
             } else if (result.status === 'failed') {
               clearInterval(poll);
               setMessages((prev) =>
