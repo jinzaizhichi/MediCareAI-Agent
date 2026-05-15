@@ -357,6 +357,7 @@ async def get_session(
 @router.get("/route/stream")
 async def route_stream(
     message: str,
+    request: Request,
     ctx: CurrentUserContextLenient,
     db: AsyncSession = Depends(get_db),
     patient_id: str | None = None,
@@ -379,8 +380,11 @@ async def route_stream(
         complete        →  流结束
         error           →  错误
     """
-    # Auto-create guest session if no valid auth (SSE can't set headers)
-    if ctx.user is None and not ctx.is_guest:
+    # Auto-create guest session only when no Bearer token was attempted.
+    # Registered users with expired Bearer tokens should get 401 so their
+    # frontend can trigger a token refresh — NOT silently downgrade to guest.
+    has_bearer = request.headers.get("Authorization", "").startswith("Bearer ")
+    if not has_bearer and ctx.user is None and not ctx.is_guest:
         from app.models.user import GuestSession
         from app.core.security import create_guest_token
         import uuid as _uuid
@@ -398,6 +402,14 @@ async def route_stream(
         ctx = UserContext(user=None, platform="web", is_guest=True, guest_id=str(guest.id))
         # Send the new token to the client via SSE so frontend can update localStorage
         # (this is a best-effort — EventSource fires onopen first, then we yield)
+
+    # Registered user with expired Bearer token: return 401 so frontend refreshes
+    if has_bearer and ctx.user is None and not ctx.is_guest:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has expired. Please refresh.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     async def event_generator():
         # Emit new guest token if one was auto-created
