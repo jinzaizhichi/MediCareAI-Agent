@@ -641,6 +641,18 @@ OUTPUT (search query only):"""
                 lab_reports = session.context.get("lab_reports", [])
                 if lab_reports:
                     state.lab_reports = lab_reports
+                # Fallback: check bridge via stored frontend session ID (late-arriving reports)
+                f_sid = session.context.get("_frontend_sid")
+                if f_sid:
+                    try:
+                        from app.api.v1.agents import _session_lab_bridge
+                        bridge_reports = _session_lab_bridge.get(f_sid, [])
+                        if bridge_reports and len(bridge_reports) > len(state.lab_reports):
+                            state.lab_reports = bridge_reports
+                            _l = logging.getLogger("debug.t3")
+                            _l.info("[DEBUG-T3] interview_answer: bridge updated lab_reports from %d to %d", len(lab_reports), len(bridge_reports))
+                    except Exception:
+                        pass
         async with async_session_maker() as db2:
             llm = LLMService(provider=self.provider, db=db2)
             engine = DynamicInterviewEngine(llm)
