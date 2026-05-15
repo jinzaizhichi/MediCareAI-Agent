@@ -697,7 +697,7 @@ export default function ChatPage() {
         );
       }
     },
-    []
+    [currentSessionId]
   );
 
   const handleNewChat = useCallback(() => {
