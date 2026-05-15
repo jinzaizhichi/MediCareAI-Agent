@@ -354,23 +354,13 @@ class InterviewOrchestrator:
                 action = "ask"
                 return [], state, [], action, reasoning
 
-            # Natural endpoint: all new questions were duplicates after dedup.
-            # Regenerate once more with accumulated data. If STILL all duplicates
-            # after the second attempt, the interview is truly complete.
-            if hasattr(state, '_dedup_empty_round') and state._dedup_empty_round:
-                # Second consecutive all-duplicates round → truly done
-                state.is_sufficient = True
-                state.phase = "completed"
-                state.regeneration_count = 1
-                action = "synthesize"
-                self.logger.info("[ORCH] natural endpoint — 2 consecutive all-duplicate rounds, synthesizing")
-                return [], state, [], action, reasoning
-            # First all-duplicates round — regenerate once to confirm
-            state._dedup_empty_round = True
-            self.logger.info("[ORCH] all duplicates this round — regenerating to confirm")
-            if all_questions:
-                return all_questions[:2], state, [], "ask", reasoning
-            action = "ask"
+            # Natural endpoint: dedup says all new questions are duplicates.
+            # No more to ask → interview is complete → synthesize.
+            state.is_sufficient = True
+            state.phase = "completed"
+            state.regeneration_count = 1
+            action = "synthesize"
+            self.logger.info("[ORCH] natural endpoint — dedup empty, no pending, synthesizing")
             return [], state, [], action, reasoning
 
         action = "ask"

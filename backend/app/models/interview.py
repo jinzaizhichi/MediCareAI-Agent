@@ -244,8 +244,6 @@ class InterviewState:
     regeneration_count: int = 0
     # Lab reports from multimodal parsing (Track 3)
     lab_reports: list[dict[str, Any]] = field(default_factory=list)
-    # Transient: first all-duplicate round → regenerate once to confirm before synthesizing
-    _dedup_empty_round: bool = False
 
     # Internal keys for storing differential diagnosis info in collected_info (DB compatibility)
     _DIFF_KEY = "__differential_diagnoses__"
