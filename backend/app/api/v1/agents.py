@@ -456,9 +456,11 @@ async def route_stream(
             "monitoring": "MonitoringAgent 随访监测",
             "research": "ResearchAgent 医学研究",
             "consultation": "Consultation 综合诊疗",
-            "escalation": "Escalation 人工转接",
             "general": "General 通用医疗",
         }
+        # Escalation is now handled within the diagnosis pipeline — not a separate route
+        if intent == "escalation":
+            intent = "diagnosis"
         agent_display = agent_name_map.get(intent, agent_name_map["general"])
 
         yield f"event: agent_switch\ndata: {json.dumps({'agent': intent, 'agent_display': agent_display, 'message': f'🔄 正在切换到 {agent_display}...'})}\n\n"
@@ -523,15 +525,6 @@ ROLE:
 
 OUTPUT FORMAT:
 Use Markdown formatting.""",
-
-                "escalation": """You are handling an escalation to human medical staff.
-
-ROLE:
-- Acknowledge the patient's request
-- Provide immediate safety guidance if needed
-- Explain the handoff process
-
-Be empathetic and professional.""",
 
                 "general": """You are MediCareAI-Agent, a helpful medical AI assistant.
 

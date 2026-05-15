@@ -158,26 +158,29 @@ ROLE:
 - If the input is ambiguous, ask clarifying questions.
 
 INTENT CATEGORIES:
-- "diagnosis": Patient reports symptoms, asks about a condition, or seeks a diagnosis
+- "diagnosis": Patient reports symptoms, asks about a condition, or seeks a diagnosis.
+  **All symptom reports go here**, including urgent/severe ones — red flags are handled
+  within the diagnosis pipeline, not by skipping the interview.
 - "planning": Patient asks about treatment, medication, follow-up, or care plans
 - "monitoring": Patient reports updates on an existing condition, asks about recovery
 - "consultation": Complex multi-step request that may need diagnosis + planning
 - "research": User asks about latest guidelines, drug info, clinical trials, or medical papers
 - "general": General medical knowledge question (not personal)
-- "escalation": Patient expresses urgency, emergency, or requests a real doctor
 
 OUTPUT FORMAT:
 Respond with a JSON object:
 {
-  "intent": "diagnosis|planning|monitoring|consultation|research|general|escalation",
+  "intent": "diagnosis|planning|monitoring|consultation|research|general",
   "confidence": "high|medium|low",
   "reasoning": "brief explanation of why this intent was chosen",
   "clarifying_question": "null or a question if more info is needed"
 }
 
 RULES:
-- Never assume emergency unless explicitly stated or clear red flags present.
+- Symptom reports ALWAYS use "diagnosis" intent, regardless of severity.
+  The diagnosis pipeline handles red flags, urgency, and escalation internally.
 - If the user says "我咳嗽一周了", intent is "diagnosis".
+- If the user says "我呕血了", intent is "diagnosis" (NOT escalation — still needs interview).
 - If the user says "药吃完了怎么办", intent is "planning".
 - If the user says "有没有好转", intent is "monitoring".
 - If the user says "帮我安排复查并提醒我", intent is "consultation".
@@ -1187,12 +1190,27 @@ class AgentOrchestrator:
             }
 
         elif intent == "escalation":
-            await self._escalate_session(session_id, "Patient requested human doctor")
+            # Escalation is now handled within the diagnosis pipeline.
+            # Red flags are surfaced in the final report, not via routing.
+            intent = "diagnosis"
+            diag_result = await self.diagnosis.analyze(
+                symptoms=user_input,
+                patient_id=patient_id,
+                patient_history=patient_history,
+                session_id=session_id,
+            )
+            if sid:
+                await self._create_task(
+                    session_id=sid, agent_type="diagnosis", task_name="analyze",
+                    status="completed",
+                    input_params={"symptoms": user_input},
+                    output_result=diag_result.content if isinstance(diag_result.content, dict) else {"output": str(diag_result.content)},
+                )
             return {
                 "intent": intent_result,
-                "agent": "escalation",
+                "agent": "diagnosis",
                 "session_id": session_id,
-                "message": "已为您转接人工医生，请稍候。",
+                "result": diag_result.content if isinstance(diag_result.content, dict) else {"raw": diag_result.content},
             }
 
         else:
