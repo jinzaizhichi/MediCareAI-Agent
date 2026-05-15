@@ -281,7 +281,9 @@ class InterviewOrchestrator:
 
         # Process red flags from Track1
         if red_flags:
-            state.red_flags_detected.extend(red_flags)
+            for rf in red_flags:
+                if rf not in state.red_flags_detected:
+                    state.red_flags_detected.append(rf)
             self.logger.warning("[ORCH] RED_FLAGS from Track1: %s", red_flags)
 
         # Update differential diagnoses from Track1

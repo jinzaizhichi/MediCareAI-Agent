@@ -647,10 +647,12 @@ OUTPUT (search query only):"""
                     try:
                         from app.api.v1.agents import _session_lab_bridge
                         bridge_reports = _session_lab_bridge.get(f_sid, [])
+                        _l = logging.getLogger("debug.t3")
+                        _l.info("[DEBUG-T3] interview_answer bridge: f_sid=%s bridge_count=%d state_count=%d",
+                                f_sid, len(bridge_reports), len(state.lab_reports))
                         if bridge_reports and len(bridge_reports) > len(state.lab_reports):
                             state.lab_reports = bridge_reports
-                            _l = logging.getLogger("debug.t3")
-                            _l.info("[DEBUG-T3] interview_answer: bridge updated lab_reports from %d to %d", len(lab_reports), len(bridge_reports))
+                            _l.info("[DEBUG-T3] interview_answer: bridge updated lab_reports to %d", len(bridge_reports))
                     except Exception:
                         pass
         async with async_session_maker() as db2:
