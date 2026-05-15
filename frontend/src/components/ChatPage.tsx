@@ -135,30 +135,13 @@ export default function ChatPage() {
     async (text: string) => {
       if (isStreaming || !currentSessionId) return;
 
-      // Ensure valid guest session before every diagnosis
       if (!getToken()) {
-        const guestToken = localStorage.getItem('guest_token');
-        if (guestToken) {
-          try {
-            const status = await agentApi.fetchGuestStatus();
-            if (!status) throw new Error('token invalid');
-          } catch {
-            // Token expired or invalid — clear and refresh
-            agentApi.clearGuestToken();
-            try {
-              await agentApi.createGuestSession();
-            } catch {
-              console.error('Guest session refresh failed');
-            }
-          }
-        }
-        // No guest token at all — create one
-        if (!localStorage.getItem('guest_token')) {
-          try {
-            await agentApi.createGuestSession();
-          } catch {
-            console.error('Guest session creation failed');
-          }
+        localStorage.removeItem('guest_token');
+        localStorage.removeItem('guest_status');
+        try {
+          await agentApi.createGuestSession();
+        } catch {
+          // Continue with whatever token we have — better than blocking send
         }
       }
 
