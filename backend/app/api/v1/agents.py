@@ -610,6 +610,18 @@ Use Markdown formatting for readability.""",
                         )
                         if new_session:
                             session_id = str(new_session.id)
+                            # Carry over lab reports from bridge into the new session context
+                            if query_sid:
+                                bridge_reports = _session_lab_bridge.get(query_sid, [])
+                                if bridge_reports:
+                                    ctx = dict(new_session.context or {})
+                                    ctx["lab_reports"] = bridge_reports
+                                    new_session.context = ctx
+                                    async with async_session_maker() as _bdb:
+                                        _bs = await _bdb.get(AgentSession, uuid.UUID(session_id))
+                                        if _bs:
+                                            _bs.context = ctx
+                                            await _bdb.commit()
                     except Exception:
                         pass
 
@@ -656,9 +668,11 @@ Use Markdown formatting for readability.""",
                             async with async_session_maker() as _db:
                                 _s = await _db.get(AgentSession, uuid.UUID(session_id))
                                 if _s and _s.context:
-                                    _ctx = _s.context or {}
-                                    _iv = _ctx.get("interview") or {}
+                                    _ctx = dict(_s.context or {})
+                                    _iv = dict(_ctx.get("interview") or {})
                                     _iv["phase"] = "completed"
+                                    _iv["is_sufficient"] = False
+                                    _iv["regeneration_count"] = (_iv.get("regeneration_count") or 0) + 1
                                     _ctx["interview"] = _iv
                                     _s.context = _ctx
                                     await _db.commit()
@@ -853,9 +867,11 @@ async def route_stream_continue(
             async with async_session_maker() as _db:
                 _s = await _db.get(AgentSession, uuid.UUID(session_id))
                 if _s and _s.context:
-                    _ctx = _s.context or {}
-                    _iv = _ctx.get("interview") or {}
+                    _ctx = dict(_s.context or {})
+                    _iv = dict(_ctx.get("interview") or {})
                     _iv["phase"] = "completed"
+                    _iv["is_sufficient"] = False  # Prevent re-triggering diagnosis
+                    _iv["regeneration_count"] = (_iv.get("regeneration_count") or 0) + 1
                     _ctx["interview"] = _iv
                     _s.context = _ctx
                     await _db.commit()

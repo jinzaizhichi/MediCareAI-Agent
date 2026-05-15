@@ -49,6 +49,8 @@ export default function ChatPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const didInit = useRef(false);
   const pendingSessionRef = useRef<{ sessionId: string; questionId: string } | null>(null);
+  const messagesRef = useRef<ChatMessageItem[]>(messages);
+  messagesRef.current = messages;  // keep ref in sync for useCallback closures
 
   // 初始化：检查认证状态，未登录时自动创建访客 session
   useEffect(() => {
@@ -146,7 +148,7 @@ export default function ChatPage() {
       }
 
       // Post completed lab reports to the session before diagnosis
-      const completedReports = messages
+      const completedReports = messagesRef.current
         .filter(m => m.uploadStatus === 'completed' && m.labReport)
         .map(m => m.labReport!);
       if (completedReports.length > 0) {
