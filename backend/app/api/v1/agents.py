@@ -779,6 +779,11 @@ async def route_stream_continue(
             yield f"event: error\ndata: {json.dumps({'error': f'Interview error: {e}'})}\n\n"
             return
 
+        # Interview already completed (phase=completed, regeneration exhausted)
+        if action == "completed":
+            yield f"event: complete\ndata: {json.dumps({'status': 'already_diagnosed', 'session_id': session_id})}\n\n"
+            return
+
         if searches:
             yield f"event: thinking\ndata: {json.dumps({'step': 'search', 'message': '🔍 后台搜索中...'})}\n\n"
 

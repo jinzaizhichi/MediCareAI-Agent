@@ -630,6 +630,10 @@ OUTPUT (search query only):"""
                 d = session.context.get("interview")
                 if d:
                     state = InterviewState.from_dict(d)
+                # Load lab reports from session context (posted by frontend after Track 3 parsing)
+                lab_reports = session.context.get("lab_reports", [])
+                if lab_reports:
+                    state.lab_reports = lab_reports
         async with async_session_maker() as db2:
             llm = LLMService(provider=self.provider, db=db2)
             engine = DynamicInterviewEngine(llm)
