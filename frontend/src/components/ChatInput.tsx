@@ -36,10 +36,13 @@ export default function ChatInput({ onSend, disabled = false, quickReplies, onQu
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file && onFileUpload) {
-      if (file.size <= 10 * 1024 * 1024) {
-        onFileUpload(file);
+    const files = e.target.files;
+    if (files && onFileUpload) {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (file.size <= 10 * 1024 * 1024) {
+          onFileUpload(file);
+        }
       }
     }
     if (e.target) e.target.value = '';
@@ -61,6 +64,7 @@ export default function ChatInput({ onSend, disabled = false, quickReplies, onQu
           ref={fileInputRef}
           type="file"
           hidden
+          multiple
           accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx,.txt"
           onChange={handleFileSelect}
         />
