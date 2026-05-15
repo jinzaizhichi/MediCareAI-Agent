@@ -135,6 +135,23 @@ export default function ChatPage() {
     async (text: string) => {
       if (isStreaming || !currentSessionId) return;
 
+      // Refresh guest token if expired before sending diagnosis
+      if (!getToken()) {
+        const guestToken = localStorage.getItem('guest_token');
+        if (guestToken) {
+          try {
+            const status = await agentApi.fetchGuestStatus();
+            if (!status) {
+              agentApi.clearGuestToken();
+              await agentApi.createGuestSession();
+            }
+          } catch {
+            agentApi.clearGuestToken();
+            await agentApi.createGuestSession();
+          }
+        }
+      }
+
       const userMsg: ChatMessageItem = {
         id: generateId(),
         role: 'user',
