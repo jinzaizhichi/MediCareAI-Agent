@@ -836,12 +836,17 @@ async def route_stream_continue(
         yield f"event: thinking\ndata: {json.dumps({'step': 'processing', 'message': '🧠 正在分析您的回答...'})}\n\n"
 
         try:
+            import logging as _lmod2
             questions, state, searches, action, reasoning = await diag_agent.interview_answer(
                 session_id=session_id,
                 question_id=question_id,
                 answer=_answer,
             )
+            _lmod2.getLogger("debug.continue").info("[DEBUG-CONT] action=%s questions=%d is_sufficient=%s phase=%s red_flags=%d",
+                       action, len(questions), state.is_sufficient, state.phase, len(state.red_flags_detected))
         except Exception as e:
+            import logging as _lmod
+            _lmod.getLogger("debug.continue").error("[DEBUG-CONT] interview_answer failed: %s", e)
             yield f"event: error\ndata: {json.dumps({'error': f'Interview error: {e}'})}\n\n"
             return
 
@@ -865,6 +870,8 @@ async def route_stream_continue(
             yield f"event: red_flags\ndata: {json.dumps({'red_flags': state.red_flags_detected, 'message': '检测到危险信号，建议立即就医'})}\n\n"
 
         if not state.is_sufficient:
+            import logging as _lmod3
+            _lmod3.getLogger("debug.continue").warning("[DEBUG-CONT] EMPTY CARDS — is_sufficient=False, no questions to show (DEADLOCK)")
             yield f"event: complete\ndata: {json.dumps({'status': 'waiting_for_answer', 'session_id': session_id})}\n\n"
             await asyncio.sleep(0.1)
             return
