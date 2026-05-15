@@ -145,6 +145,22 @@ export default function ChatPage() {
         }
       }
 
+      // Post completed lab reports to the session before diagnosis
+      const completedReports = messages
+        .filter(m => m.uploadStatus === 'completed' && m.labReport)
+        .map(m => m.labReport!);
+      if (completedReports.length > 0) {
+        try {
+          await fetch(`/api/v1/agents/sessions/${currentSessionId}/lab-reports`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : { 'X-Guest-Token': localStorage.getItem('guest_token') || '' }) },
+            body: JSON.stringify(completedReports),
+          });
+        } catch {
+          // Non-critical — proceed without lab data
+        }
+      }
+
       const userMsg: ChatMessageItem = {
         id: generateId(),
         role: 'user',

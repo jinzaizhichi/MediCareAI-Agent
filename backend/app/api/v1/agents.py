@@ -354,6 +354,26 @@ async def get_session(
 # Streaming SSE endpoints (backend-ready, frontend to integrate later)
 # ---------------------------------------------------------------------------
 
+@router.post("/sessions/{session_id}/lab-reports")
+async def store_lab_reports(
+    session_id: str,
+    reports: list[dict[str, Any]] = Field(default_factory=list),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Store parsed lab report data in the session context for diagnosis."""
+    import uuid as _uuid
+    _s = await db.get(AgentSession, _uuid.UUID(session_id))
+    if not _s:
+        raise HTTPException(status_code=404, detail="Session not found")
+    ctx = _s.context or {}
+    existing = ctx.get("lab_reports", [])
+    existing.extend(reports)
+    ctx["lab_reports"] = existing
+    _s.context = ctx
+    await db.commit()
+    return {"status": "stored", "count": len(existing)}
+
+
 @router.get("/route/stream")
 async def route_stream(
     message: str,
@@ -531,21 +551,42 @@ Use Markdown formatting for readability.""",
             if patient_history:
                 messages.insert(0, {"role": "system", "content": f"Patient history context: {patient_history}"})
 
+            # 加载已上传的化验单解析结果到上下文
+            session_id: str | None = None
+            query_sid = request.query_params.get("session_id")
+            if query_sid:
+                try:
+                    _qs = await db.get(AgentSession, uuid.UUID(query_sid))
+                    if _qs and _qs.context:
+                        lab_reports = _qs.context.get("lab_reports", [])
+                        if lab_reports:
+                            lab_text = "**已上传的检查报告解析结果：**\n"
+                            for r in lab_reports:
+                                indicators = r.get("indicators", [])
+                                if indicators:
+                                    lab_text += f"\n报告 (置信度: {int(r.get('overall_confidence', 0) * 100)}%):\n"
+                                    for ind in indicators[:30]:  # limit to avoid token overflow
+                                        abn = " [异常]" if ind.get("abnormal") else ""
+                                        lab_text += f"  - {ind.get('indicator_name', '?')}: {ind.get('value', '?')} {ind.get('unit', '')}{abn}\n"
+                            messages.insert(0, {"role": "system", "content": lab_text})
+                except Exception:
+                    pass
+
             # 真实工具调用 + 流式输出
             if intent == "diagnosis":
                 # ─── Interview phase: collect info before diagnosis ───
-                # Create a session to persist interview state
-                session_id: str | None = None
-                try:
-                    new_session = await master._create_session(
-                        user_id=uuid.UUID(actual_patient_id) if actual_patient_id else None,
-                        session_type=AgentSessionType.DIAGNOSIS,
-                        intent="diagnosis",
-                    )
-                    if new_session:
-                        session_id = str(new_session.id)
-                except Exception:
-                    pass
+                # Create a session to persist interview state (if not already loaded)
+                if not session_id:
+                    try:
+                        new_session = await master._create_session(
+                            user_id=uuid.UUID(actual_patient_id) if actual_patient_id else None,
+                            session_type=AgentSessionType.DIAGNOSIS,
+                            intent="diagnosis",
+                        )
+                        if new_session:
+                            session_id = str(new_session.id)
+                    except Exception:
+                        pass
 
                 diag_agent = DiagnosisAgent(provider=provider)
 
