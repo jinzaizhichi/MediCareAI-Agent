@@ -627,18 +627,18 @@ Use Markdown formatting for readability.""",
                             # Carry over lab reports from bridge into the new session context
                             if query_sid:
                                 # Store frontend session ID so interview_answer can find bridge data
-                                ctx = dict(new_session.context or {})
-                                ctx["_frontend_sid"] = query_sid
+                                _nctx = dict(new_session.context or {})
+                                _nctx["_frontend_sid"] = query_sid
                                 bridge_reports = _session_lab_bridge.get(query_sid, [])
                                 if bridge_reports:
-                                    ctx["lab_reports"] = bridge_reports
+                                    _nctx["lab_reports"] = bridge_reports
                                     import logging as _log2
                                     _log2.getLogger("debug.t3").info("[DEBUG-T3] route_stream: copied %d bridge reports to new session %s", len(bridge_reports), session_id)
-                                new_session.context = ctx
+                                new_session.context = _nctx
                                 async with async_session_maker() as _bdb:
                                     _bs = await _bdb.get(AgentSession, uuid.UUID(session_id))
                                     if _bs:
-                                        _bs.context = ctx
+                                        _bs.context = _nctx
                                         await _bdb.commit()
                     except Exception:
                         pass
