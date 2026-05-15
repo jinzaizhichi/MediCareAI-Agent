@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -22,7 +23,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, CurrentUserContext, require_role
+from app.api.deps import CurrentUser, CurrentUserContext, CurrentUserContextLenient, UserContext, require_role
 from app.db.session import async_session_maker, get_db
 from app.models.agent import AgentSession, AgentSessionStatus, AgentSessionType
 from app.models.user import User, UserRole
@@ -356,7 +357,7 @@ async def get_session(
 @router.get("/route/stream")
 async def route_stream(
     message: str,
-    ctx: CurrentUserContext,
+    ctx: CurrentUserContextLenient,
     db: AsyncSession = Depends(get_db),
     patient_id: str | None = None,
     patient_history: str | None = None,
@@ -378,8 +379,31 @@ async def route_stream(
         complete        →  流结束
         error           →  错误
     """
+    # Auto-create guest session if no valid auth (SSE can't set headers)
+    if ctx.user is None and not ctx.is_guest:
+        from app.models.user import GuestSession
+        from app.core.security import create_guest_token
+        import uuid as _uuid
+        session_token = _uuid.uuid4().hex
+        guest = GuestSession(
+            session_token=session_token,
+            fingerprint="sse-auto",
+            max_messages=999,
+            expires_at=datetime.now(datetime.timezone.utc) + timedelta(hours=24),
+        )
+        db.add(guest)
+        await db.commit()
+        await db.refresh(guest)
+        token = create_guest_token(str(guest.id), "sse-auto", platform="web")
+        ctx = UserContext(user=None, platform="web", is_guest=True, guest_id=str(guest.id))
+        # Send the new token to the client via SSE so frontend can update localStorage
+        # (this is a best-effort — EventSource fires onopen first, then we yield)
+
     async def event_generator():
-        # ─── Step 1: MasterAgent 意图分类 ───
+        # Emit new guest token if one was auto-created
+        if ctx.is_guest and ctx.guest_id:
+            yield f"event: guest_token\ndata: {json.dumps({'guest_token': getattr(ctx, '_new_token', None) or ''})}\n\n"
+
         master = AgentOrchestrator(provider=provider)
         actual_patient_id = patient_id or (str(ctx.user.id) if ctx.user else None)
 

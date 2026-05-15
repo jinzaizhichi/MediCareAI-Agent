@@ -84,11 +84,10 @@ async def _resolve_token(
         return None, "unknown", False, None
 
     except jwt.ExpiredSignatureError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token has expired",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        # Treat expired as no-token rather than blocking.
+        # SSE EventSource cannot refresh tokens, and localStorage
+        # may retain stale JWT across sessions.
+        return None, "unknown", False, None
     except jwt.InvalidTokenError:
         return None, "unknown", False, None
 
@@ -205,3 +204,29 @@ def require_role(*roles: UserRole):
 # Convenience type aliases
 CurrentUser = Annotated[User, Depends(get_current_user)]
 CurrentUserContext = Annotated[UserContext, Depends(get_current_user_or_guest)]
+
+
+async def get_current_user_or_guest_lenient(
+    request: Request,
+    token: Annotated[str | None, Depends(oauth2_scheme)] = None,
+    x_guest_token: Annotated[str | None, Header(alias="X-Guest-Token")] = None,
+    db: AsyncSession = Depends(get_db),
+) -> UserContext:
+    """Like get_current_user_or_guest but returns empty context on auth failure.
+
+    Designed for SSE/EventSource endpoints where the client cannot
+    easily refresh tokens. Returns is_guest=False, user=None instead
+    of raising 401.
+    """
+    cookie_token = request.cookies.get("auth_token")
+    query_token = request.query_params.get("token") or request.query_params.get("guest_token")
+    effective_token = token or x_guest_token or query_token or cookie_token
+    try:
+        user, platform, is_guest, guest_id = await _resolve_token(effective_token, db)
+        if user is not None or is_guest:
+            return UserContext(user=user, platform=platform, is_guest=is_guest, guest_id=guest_id)
+    except Exception:
+        pass
+    return UserContext(user=None, platform="unknown", is_guest=False, guest_id=None)
+
+CurrentUserContextLenient = Annotated[UserContext, Depends(get_current_user_or_guest_lenient)]
