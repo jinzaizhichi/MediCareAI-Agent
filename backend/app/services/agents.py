@@ -580,7 +580,7 @@ OUTPUT (search query only):"""
                     import asyncio
                     result = await asyncio.wait_for(
                         GLOBAL_REGISTRY.execute("search_medical_knowledge", {"query": query, "top_k": 5}),
-                        timeout=25.0,
+                        timeout=15.0,
                     )
                     if isinstance(result, dict) and result.get("success"):
                         r = result.get("result", result)
@@ -644,7 +644,7 @@ OUTPUT (search query only):"""
                 try:
                     result = await asyncio.wait_for(
                         GLOBAL_REGISTRY.execute("search_medical_knowledge", {"query": query, "top_k": 5}),
-                        timeout=25.0,
+                        timeout=15.0,
                     )
                     if isinstance(result, dict) and result.get("success"):
                         r = result.get("result", result)
@@ -744,11 +744,14 @@ OUTPUT (search query only):"""
                     "search_medical_knowledge",
                     {"query": search_query, "top_k": 5},
                 ),
-                timeout=60.0,
+                timeout=15.0,
             )
             logger.info(f"[SEARXNG_DEBUG] Search result type: {type(search_result)}, has answer: {bool(search_result) if search_result else False}")
         except asyncio.TimeoutError:
-            logger.warning("[SEARXNG_DEBUG] Medical knowledge search timed out after 60s, proceeding without external sources")
+            logger.warning("[SEARXNG_DEBUG] Medical knowledge search timed out after 15s, proceeding without external sources")
+            search_result = None
+        except Exception as e:
+            logger.warning("[SEARXNG_DEBUG] Medical knowledge search failed: %s, proceeding without external sources", e)
             search_result = None
         
         knowledge_context = ""

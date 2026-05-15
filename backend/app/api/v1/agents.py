@@ -608,17 +608,19 @@ Use Markdown formatting for readability.""",
                             yield f"event: red_flags\ndata: {json.dumps({'red_flags': state.red_flags_detected, 'message': '检测到危险信号，建议立即就医'})}\n\n"
                             # Do NOT return — proceed to diagnosis with red flags included
 
+                        # Redis lock first — prevent concurrent diagnoses
+                        from app.db.redis_client import get_redis
+                        redis_client = get_redis()
+                        lock_key = f"diag_lock:{session_id}"
+                        locked = await redis_client.set(lock_key, "1", nx=True, ex=300)
+                        if not locked:
+                            yield f"event: complete\ndata: {json.dumps({'status': 'already_diagnosed', 'session_id': session_id})}\n\n"
+                            return
+
                         yield f"event: thinking\ndata: {json.dumps({'step': 'diagnosis', 'message': '🧠 问诊信息充足，正在综合分析并搜索医学知识...'})}\n\n"
 
-                        # Mark as completed BEFORE generating report — with Redis lock
+                        # Mark as completed in session context
                         try:
-                            from app.db.redis_client import get_redis
-                            redis_client = get_redis()
-                            lock_key = f"diag_lock:{session_id}"
-                            locked = await redis_client.set(lock_key, "1", nx=True, ex=60)
-                            if not locked:
-                                yield f"event: complete\ndata: {json.dumps({'status': 'already_diagnosed', 'session_id': session_id})}\n\n"
-                                return
                             async with async_session_maker() as _db:
                                 _s = await _db.get(AgentSession, uuid.UUID(session_id))
                                 if _s and _s.context:
@@ -804,18 +806,20 @@ async def route_stream_continue(
             return
 
         # Interview complete — proceed to diagnosis using structured summary
+        # Redis lock first — prevent concurrent diagnoses from flooding SearXNG
+        from app.db.redis_client import get_redis
+        redis_client = get_redis()
+        lock_key = f"diag_lock:{session_id}"
+        locked = await redis_client.set(lock_key, "1", nx=True, ex=300)
+        if not locked:
+            yield f"event: complete\ndata: {json.dumps({'status': 'already_diagnosed', 'session_id': session_id})}\n\n"
+            return
+
         _msg_start = "🧠 问诊完成，正在整理问诊信息..."
         yield f"event: thinking\ndata: {json.dumps({'step': 'diagnosis', 'message': _msg_start})}\n\n"
 
-        # Mark as completed BEFORE generating report — with Redis lock
+        # Mark as completed in session context
         try:
-            from app.db.redis_client import get_redis
-            redis_client = get_redis()
-            lock_key = f"diag_lock:{session_id}"
-            locked = await redis_client.set(lock_key, "1", nx=True, ex=60)
-            if not locked:
-                yield f"event: complete\ndata: {json.dumps({'status': 'already_diagnosed', 'session_id': session_id})}\n\n"
-                return
             async with async_session_maker() as _db:
                 _s = await _db.get(AgentSession, uuid.UUID(session_id))
                 if _s and _s.context:
