@@ -389,7 +389,7 @@ async def route_stream(
             session_token=session_token,
             fingerprint="sse-auto",
             max_messages=999,
-            expires_at=datetime.now(datetime.timezone.utc) + timedelta(hours=24),
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
         )
         db.add(guest)
         await db.commit()
