@@ -354,7 +354,11 @@ class InterviewOrchestrator:
 
             sufficient = await self._assess_sufficiency(state)
             if not sufficient:
-                # LLM assessment failed or information is genuinely insufficient
+                # LLM assessment failed or information is genuinely insufficient.
+                # If dedup filtered everything, return original questions to keep flow going.
+                if not deduped and all_questions:
+                    self.logger.info("[ORCH] sufficiency=False + dedup empty — returning original questions to avoid deadlock")
+                    return all_questions[:2], state, [], "ask", reasoning
                 self.logger.info("[ORCH] sufficiency=False, returning to ask mode")
                 action = "ask"
                 return [], state, [], action, reasoning
