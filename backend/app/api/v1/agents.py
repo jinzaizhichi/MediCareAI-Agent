@@ -17,7 +17,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -357,7 +357,7 @@ async def get_session(
 @router.post("/sessions/{session_id}/lab-reports")
 async def store_lab_reports(
     session_id: str,
-    reports: list[dict[str, Any]] = Field(default_factory=list),
+    reports: list[dict[str, Any]] = Body(default_factory=list),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Store parsed lab report data in the session context for diagnosis."""
