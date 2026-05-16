@@ -828,6 +828,9 @@ OUTPUT (search query only):"""
                     **(session.context or {}),
                     "interview": state.to_dict(),
                 }
+                _l_save = logging.getLogger("debug.t3")
+                _l_save.info("[DEBUG-T3] _update_interview_state saving: phase=%s regen=%s is_sufficient=%s",
+                            state.phase, state.regeneration_count, state.is_sufficient)
                 session.updated_at = datetime.now(timezone.utc)
                 await db.commit()
 
