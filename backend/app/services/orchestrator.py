@@ -256,7 +256,7 @@ class InterviewOrchestrator:
                 return [], state, [], "completed", ""
             state.phase = "interviewing"
             state.regeneration_count += 1
-            self.logger.info("[ORCH] phase=completed, allowing 1 regeneration (#%d)", state.regeneration_count)
+            self.logger.info("[DEBUG-DIAG] phase=completed, allowing 1 regeneration (#%d)", state.regeneration_count)
             regeneration = True
         else:
             regeneration = False
@@ -350,7 +350,7 @@ class InterviewOrchestrator:
         if not deduped:
             pending_unanswered = set(state.question_texts.keys()) - set(state.asked_questions)
             if pending_unanswered:
-                self.logger.info("[ORCH] deferred synthesize — %d unanswered cards remain", len(pending_unanswered))
+                self.logger.info("[DEBUG-DIAG] deferred synthesize — %d unanswered cards remain", len(pending_unanswered))
                 action = "ask"
                 return [], state, [], action, reasoning
 
@@ -360,7 +360,7 @@ class InterviewOrchestrator:
             state.phase = "completed"
             state.regeneration_count = 1
             action = "synthesize"
-            self.logger.info("[ORCH] natural endpoint — dedup empty, no pending, synthesizing")
+            self.logger.info("[DEBUG-DIAG] natural endpoint — dedup empty + no pending → synthesize")
             return [], state, [], action, reasoning
 
         action = "ask"
