@@ -243,6 +243,8 @@ class InterviewState:
     regeneration_count: int = 0
     # Lab reports from multimodal parsing (Track 3)
     lab_reports: list[dict[str, Any]] = field(default_factory=list)
+    # Frontend session ID for bridge lookups (not persisted, set at interview creation)
+    _frontend_sid: str = ""
 
     # Internal keys for storing differential diagnosis info in collected_info (DB compatibility)
     _DIFF_KEY = "__differential_diagnoses__"

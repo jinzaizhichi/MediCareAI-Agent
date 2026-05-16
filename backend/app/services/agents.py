@@ -573,6 +573,8 @@ OUTPUT (search query only):"""
                 else:
                     _l = logging.getLogger("debug.t3")
                     _l.warning("[DEBUG-T3] interview: NO lab_reports in session.context, keys=%s", list(session.context.keys()) if session.context else [])
+                # Load frontend session ID for bridge lookups
+                state._frontend_sid = session.context.get("_frontend_sid", "")
         if chief_complaint and not state.chief_complaint:
             state.chief_complaint = chief_complaint
         if collected_info:
@@ -641,6 +643,8 @@ OUTPUT (search query only):"""
                 lab_reports = session.context.get("lab_reports", [])
                 if lab_reports:
                     state.lab_reports = lab_reports
+                # Load frontend session ID for bridge lookups
+                state._frontend_sid = session.context.get("_frontend_sid", "")
                 # Fallback: check bridge via stored frontend session ID (late-arriving reports)
                 f_sid = session.context.get("_frontend_sid")
                 if f_sid:

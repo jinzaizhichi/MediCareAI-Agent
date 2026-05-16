@@ -356,6 +356,24 @@ class InterviewOrchestrator:
 
             # Natural endpoint: dedup says all new questions are duplicates.
             # No more to ask → interview is complete → synthesize.
+            # Guard: check if new lab reports arrived since last round. If so,
+            # ask one more round so Track1/Track2 can incorporate the new data.
+            try:
+                from app.api.v1.agents import _session_lab_bridge
+                f_sid = state._frontend_sid
+                bridge_reports = _session_lab_bridge.get(f_sid, [])
+                if len(bridge_reports) > len(state.lab_reports):
+                    self.logger.info("[DEBUG-DIAG] defer synthesize — %d new lab reports arrived (state=%d, bridge=%d)",
+                                   len(bridge_reports) - len(state.lab_reports),
+                                   len(state.lab_reports), len(bridge_reports))
+                    state.lab_reports = bridge_reports
+                    action = "ask"
+                    if all_questions:
+                        return all_questions[:2], state, [], action, reasoning
+                    return [], state, [], action, reasoning
+            except Exception:
+                pass
+
             state.is_sufficient = True
             state.phase = "completed"
             state.regeneration_count = 1
