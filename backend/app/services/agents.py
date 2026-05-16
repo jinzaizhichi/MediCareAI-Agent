@@ -530,12 +530,9 @@ OUTPUT (search query only):"""
             result = await db.execute(stmt)
             session = result.scalar_one_or_none()
             if session:
-                # Preserve existing context (interview state, lab_reports, etc.)
-                session.context = {
-                    **(session.context or {}),
-                    "messages": messages,
-                    "collected_info": {},
-                }
+                # Only update tool_calls and structured_output — do NOT touch context.
+                # context is managed exclusively by _update_interview_state to prevent
+                # read-modify-write races that wipe phase=completed.
                 session.tool_calls = tool_calls
                 if structured:
                     session.structured_output = structured
