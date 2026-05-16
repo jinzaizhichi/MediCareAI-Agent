@@ -716,23 +716,6 @@ Use Markdown formatting for readability.""",
 
                         yield f"event: thinking\ndata: {json.dumps({'step': 'diagnosis', 'message': '🧠 问诊信息充足，正在综合分析并搜索医学知识...'})}\n\n"
 
-                        # Mark as completed in session context
-                        try:
-                            async with async_session_maker() as _db:
-                                _s = await _db.get(AgentSession, uuid.UUID(session_id))
-                                if _s and _s.context:
-                                    _ctx = dict(_s.context or {})
-                                    _iv = dict(_ctx.get("interview") or {})
-                                    _iv["phase"] = "completed"
-                                    _iv["is_sufficient"] = False
-                                    _iv["regeneration_count"] = (_iv.get("regeneration_count") or 0) + 1
-                                    _ctx["interview"] = _iv
-                                    _s.context = _ctx
-                                    await _db.commit()
-                        except Exception as e:
-                            import logging
-                            logging.getLogger("agents").error("Failed to set phase=completed: %s", e, exc_info=True)
-
                         workflow_result = await diag_agent.run_full_diagnosis_workflow(
                             session_id=session_id,
                             patient_id=actual_patient_id,
@@ -915,7 +898,7 @@ async def route_stream_continue(
         _msg_start = "🧠 问诊完成，正在整理问诊信息..."
         yield f"event: thinking\ndata: {json.dumps({'step': 'diagnosis', 'message': _msg_start})}\n\n"
 
-        # Mark as completed BEFORE generating report — with Redis lock
+        # Redis lock to prevent concurrent diagnoses
         try:
             from app.db.redis_client import get_redis
             redis_client = get_redis()
@@ -924,20 +907,9 @@ async def route_stream_continue(
             if not locked:
                 yield f"event: complete\ndata: {json.dumps({'status': 'already_diagnosed', 'session_id': session_id})}\n\n"
                 return
-            async with async_session_maker() as _db:
-                _s = await _db.get(AgentSession, uuid.UUID(session_id))
-                if _s and _s.context:
-                    _ctx = dict(_s.context or {})
-                    _iv = dict(_ctx.get("interview") or {})
-                    _iv["phase"] = "completed"
-                    _iv["is_sufficient"] = False  # Prevent re-triggering diagnosis
-                    _iv["regeneration_count"] = (_iv.get("regeneration_count") or 0) + 1
-                    _ctx["interview"] = _iv
-                    _s.context = _ctx
-                    await _db.commit()
         except Exception as e:
             import logging
-            logging.getLogger("agents").error("Failed to set phase=completed: %s", e, exc_info=True)
+            logging.getLogger("agents").error("Failed to acquire Redis lock: %s", e)
 
         try:
             yield f"event: tool_call\ndata: {json.dumps({'tool': 'search_medical_knowledge', 'params': {'query': '基于问诊摘要的医学搜索'}, 'message': '🔍 正在搜索医学知识库和最新文献...'})}\n\n"
