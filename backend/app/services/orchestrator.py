@@ -485,36 +485,6 @@ class InterviewOrchestrator:
             self.logger.warning("[ORCH] semantic_dedup failed, passing all: %s", e)
             return candidates
 
-    async def _assess_sufficiency(self, state: InterviewState) -> bool:
-        """LLM judges if collected interview info is sufficient for diagnosis.
-
-        Called only when _deduplicate and _semantic_dedup have filtered
-        ALL candidates — no unique questions remain. The LLM reviews the
-        complete interview state and decides if we have enough to synthesize.
-        """
-        summary = state.get_summary()
-        if not summary or summary == f"主诉: {state.chief_complaint}":
-            return False
-        prompt = (
-            "你是一位临床问诊评估专家。基于以下已收集的全部问诊信息，"
-            "判断目前是否已经收集了足够的信息来撰写一份完整的诊断报告。\n\n"
-            f"{summary}\n\n"
-            "返回JSON: {\"sufficient\": true/false, \"reasoning\": \"为什么\"}"
-        )
-        try:
-            response = await self.track1.llm.chat(
-                messages=[{"role": "user", "content": prompt}],
-                system_prompt="你是临床问诊评估专家。只返回JSON。",
-                max_tokens=256,
-            )
-            data = _extract_json(response.content)
-            sufficient = data.get("sufficient", False) if isinstance(data, dict) else False
-            self.logger.info("[ORCH] sufficiency assessment: %s", sufficient)
-            return sufficient
-        except Exception as e:
-            self.logger.warning("[ORCH] sufficiency assessment failed: %s", e)
-            return False
-
     async def _is_diagnosis_active(self) -> bool:
         """Check if a diagnosis is in progress (Redis lock exists)."""
         try:
