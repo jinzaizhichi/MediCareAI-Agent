@@ -833,6 +833,9 @@ OUTPUT (search query only):"""
                             state.phase, state.regeneration_count, state.is_sufficient)
                 session.updated_at = datetime.now(timezone.utc)
                 await db.commit()
+                # Ensure commit is visible to subsequent reads (avoid snapshot race)
+                import asyncio
+                await asyncio.sleep(0.1)
 
 
 # ---------------------------------------------------------------------------

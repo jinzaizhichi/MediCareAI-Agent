@@ -851,6 +851,16 @@ async def route_stream_continue(
             yield f"event: error\ndata: {json.dumps({'error': 'Session not found'})}\n\n"
             return
 
+        # If diagnosis is already in progress, skip — avoid snapshot race
+        try:
+            from app.db.redis_client import get_redis
+            _r = get_redis()
+            if await _r.exists(f"diag_lock:{session_id}"):
+                yield f"event: complete\ndata: {json.dumps({'status': 'diagnosis_in_progress', 'session_id': session_id})}\n\n"
+                return
+        except Exception:
+            pass
+
         diag_agent = DiagnosisAgent(provider=None)
 
         yield f"event: thinking\ndata: {json.dumps({'step': 'processing', 'message': '🧠 正在分析您的回答...'})}\n\n"
