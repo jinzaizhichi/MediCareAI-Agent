@@ -403,10 +403,12 @@ async def store_lab_reports(
     ctx["lab_reports"] = existing
     _s.context = ctx
     await db.commit()
-    # Also store in bridge for frontend-generated session IDs
-    _session_lab_bridge[session_id] = existing
-    # Also update the interview session if one exists with matching _frontend_sid
-    await _update_interview_session_lab_data(db, session_id, existing)
+    # Accumulate in bridge (append, don't overwrite)
+    prev = _session_lab_bridge.get(session_id, [])
+    prev.extend(reports)
+    _session_lab_bridge[session_id] = prev
+    # Update interview session with ALL accumulated reports from bridge
+    await _update_interview_session_lab_data(db, session_id, prev)
     import logging as _log
     _l = _log.getLogger("debug.t3")
     _l.info("[DEBUG-T3] store_lab_reports: session_id=%s db_id=%s reports=%d total_indicators=%d",
