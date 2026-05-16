@@ -302,6 +302,17 @@ class InterviewOrchestrator:
 
         filtered_out: set[str] = set()
         for q in deduped:
+            # Force text-type questions to become multi_choice via LLM option generation
+            if q.type == "text":
+                opts = await self._complete_options(q)
+                if opts and len(opts) >= 2:
+                    q.options = opts
+                    q.type = "multi_choice"
+                else:
+                    self.logger.warning("[ORCH] filtering text question — LLM could not generate options: %s", q.question_id)
+                    filtered_out.add(q.question_id)
+                    continue
+
             if q.type in ("multi_choice", "choice") and (not q.options or len(q.options) < 2):
                 opts = await self._complete_options(q)
                 if opts:

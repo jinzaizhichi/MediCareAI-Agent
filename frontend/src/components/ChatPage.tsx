@@ -778,7 +778,11 @@ export default function ChatPage() {
         )}
 
         <Box sx={{ p: 2, borderTop: '1px solid #F5E6D3', bgcolor: 'background.paper' }}>
-          {isDiagnosed ? (
+          {pendingSessionRef.current ? (
+            <Typography variant="body2" color="text.secondary" align="center" sx={{ py: 1 }}>
+              📋 正在问诊中，请通过下方问诊卡选择最佳答案
+            </Typography>
+          ) : isDiagnosed ? (
             <Typography variant="body2" color="text.secondary" align="center" sx={{ py: 1 }}>
               ✅ 问诊已完成，诊断报告已生成
             </Typography>
