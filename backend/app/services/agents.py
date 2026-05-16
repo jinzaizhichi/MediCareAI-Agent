@@ -637,6 +637,9 @@ OUTPUT (search query only):"""
             session = result.scalar_one_or_none()
             if session and session.context:
                 d = session.context.get("interview")
+                _l_load = logging.getLogger("debug.t3")
+                _l_load.info("[DEBUG-T3] interview_answer loading state: has_interview=%s phase=%s regen=%s",
+                             bool(d), d.get("phase") if d else "?", d.get("regeneration_count") if d else -1)
                 if d:
                     state = InterviewState.from_dict(d)
                 # Load lab reports from session context (posted by frontend after Track 3 parsing)
