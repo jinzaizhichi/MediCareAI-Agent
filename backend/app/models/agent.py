@@ -46,6 +46,7 @@ class AgentSessionType(str, PyEnum):
     PLANNING = "planning"
     MONITORING = "monitoring"
     CONSULTATION = "consultation"  # full multi-agent flow
+    CONVERSATION = "conversation"  # post-diagnosis chat (Plan B+C)
 
 
 class AgentSession(Base):
@@ -96,6 +97,14 @@ class AgentSession(Base):
     )
     escalation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Plan B+C: session hierarchy for post-diagnosis conversation
+    parent_session_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("agent_sessions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="Parent diagnosis session (NULL = top-level diagnosis)",
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -106,6 +115,20 @@ class AgentSession(Base):
     )
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+
+    # Plan B+C: self-referential hierarchy
+    children: Mapped[list["AgentSession"]] = relationship(
+        "AgentSession",
+        back_populates="parent",
+        foreign_keys=[parent_session_id],
+        lazy="selectin",
+    )
+    parent: Mapped["AgentSession | None"] = relationship(
+        "AgentSession",
+        back_populates="children",
+        remote_side=[id],
+        foreign_keys=[parent_session_id],
     )
 
     __table_args__ = (

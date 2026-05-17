@@ -188,12 +188,49 @@ export default function ChatPage() {
       };
 
       try {
-        const effectiveSessionId = (chatMode === 'diagnosed' && backendSessionIdRef.current)
-          ? backendSessionIdRef.current
-          : currentSessionId;
-        await agentApi.streamDiagnose(
-          { message: text, session_id: effectiveSessionId, patient_history: patientHistory },
-          (event: SSEEvent) => {
+        if (chatMode === 'diagnosed' && backendSessionIdRef.current) {
+          // Plan C: post-diagnosis conversation via dedicated chat endpoint
+          await agentApi.streamChat(
+            backendSessionIdRef.current,
+            text,
+            (event: SSEEvent) => {
+              switch (event.event) {
+                case 'text':
+                  content += event.data?.text || '';
+                  setMessages((prev) => {
+                    const idx = prev.findIndex((m) => m.id === agentMsgId);
+                    if (idx === -1) {
+                      return [...prev, { id: agentMsgId, role: 'agent', content, timestamp: new Date(), isStreaming: true }];
+                    }
+                    const next = prev.slice();
+                    next[idx] = { ...next[idx], content, isStreaming: true };
+                    return next;
+                  });
+                  break;
+                case 'complete':
+                  setMessages((prev) => {
+                    const idx = prev.findIndex((m) => m.id === agentMsgId);
+                    if (idx === -1) return prev;
+                    const next = prev.slice();
+                    next[idx] = { ...next[idx], isStreaming: false };
+                    return next;
+                  });
+                  setIsStreaming(false);
+                  break;
+                case 'error':
+                  setMessages((prev) => [...prev, { id: generateId(), role: 'agent', content: `请求失败，请重试`, timestamp: new Date() }]);
+                  setIsStreaming(false);
+                  break;
+              }
+            }
+          );
+        } else {
+          const effectiveSessionId = (chatMode === 'diagnosed' && backendSessionIdRef.current)
+            ? backendSessionIdRef.current
+            : currentSessionId;
+          await agentApi.streamDiagnose(
+            { message: text, session_id: effectiveSessionId, patient_history: patientHistory },
+            (event: SSEEvent) => {
             switch (event.event) {
               case 'intent': {
                 const intent = event.data?.intent as string || 'diagnosis';
@@ -372,6 +409,7 @@ export default function ChatPage() {
       } catch {
         setMessages((prev) => [...prev, { id: generateId(), role: 'agent', content: `❌ 连接失败，请检查网络后重试`, timestamp: new Date() }]);
         setIsStreaming(false);
+      }
       }
     },
     [isStreaming, currentSessionId, chatMode]

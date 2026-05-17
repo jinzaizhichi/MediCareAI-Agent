@@ -299,6 +299,78 @@ export async function migrateGuestData(): Promise<number> {
 }
 
 /**
+ * 诊断后对话 (Plan C)
+ * POST /api/v1/agents/sessions/{sessionId}/chat (SSE)
+ */
+export function streamChat(
+  sessionId: string,
+  message: string,
+  onEvent: (event: SSEEvent) => void
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const url = `${API_BASE}/agents/sessions/${encodeURIComponent(sessionId)}/chat`;
+    const body = JSON.stringify({ message });
+
+    const token = getToken();
+    const guestToken = getGuestToken();
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Accept': 'text/event-stream',
+    };
+    if (guestToken) headers['X-Guest-Token'] = guestToken;
+    else if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    fetch(url, { method: 'POST', headers, body })
+      .then(async (response) => {
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({}));
+          reject(new Error(err.detail || `HTTP ${response.status}`));
+          return;
+        }
+        const reader = response.body?.getReader();
+        if (!reader) { reject(new Error('No response body')); return; }
+
+        const decoder = new TextDecoder();
+        let buffer = '';
+        const eventTypes = ['text', 'complete', 'error'];
+
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+
+            while (buffer.includes('\n\n')) {
+              const idx = buffer.indexOf('\n\n');
+              const raw = buffer.slice(0, idx);
+              buffer = buffer.slice(idx + 2);
+
+              const lines = raw.split('\n');
+              let eventName = '';
+              let dataStr = '';
+              for (const line of lines) {
+                if (line.startsWith('event: ')) eventName = line.slice(7).trim();
+                else if (line.startsWith('data: ')) dataStr = line.slice(6);
+              }
+              if (!eventName || !dataStr) continue;
+
+              try {
+                const parsed = JSON.parse(dataStr);
+                onEvent({ event: eventName as SSEEvent['event'], data: parsed });
+                if (eventName === 'complete') { resolve(); return; }
+                if (eventName === 'error') { reject(new Error(parsed.error || 'Chat error')); return; }
+              } catch {
+                onEvent({ event: eventName as SSEEvent['event'], data: { raw: dataStr } });
+              }
+            }
+          }
+        } catch (e) { reject(e); }
+      })
+      .catch(reject);
+  });
+}
+
+/**
  * Agent API 对象 (兼容性导出)
  */
 export const agentApi = {
@@ -309,6 +381,7 @@ export const agentApi = {
   chat,
   streamDiagnose,
   streamDiagnoseContinue,
+  streamChat,
   listSessions,
   clearGuestToken,
   migrateGuestData,

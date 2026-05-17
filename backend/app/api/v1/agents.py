@@ -196,6 +196,91 @@ async def _build_conversation_context(
     messages.insert(0, {"role": "system", "content": context_text})
 
 
+async def _build_chat_context(
+    db: AsyncSession,
+    parent: AgentSession,
+    user_id: str | None = None,
+) -> str:
+    """Build system prompt for post-diagnosis chat (Plan C).
+
+    Loads: parent diagnosis + interview + lab + sibling conversations + history.
+    """
+    parts = ["You are MediCareAI, a medical AI assistant in a post-diagnosis conversation.\n"]
+
+    if parent.structured_output:
+        r = parent.structured_output
+        parts.append("## Current Diagnosis")
+        parts.append(f"Primary: {r.get('primary_diagnosis', 'Unknown')}")
+        parts.append(f"Severity: {r.get('severity', 'Unknown')}")
+        if r.get('key_findings'):
+            parts.append(f"Findings: {'; '.join(str(f) for f in r['key_findings'][:5])}")
+        if r.get('recommended_actions'):
+            parts.append(f"Actions: {'; '.join(str(a) for a in r['recommended_actions'][:5])}")
+        parts.append("")
+
+    interview = (parent.context or {}).get("interview", {})
+    collected = interview.get("collected_info", {})
+    if collected:
+        parts.append("## Patient History")
+        for k, v in collected.items():
+            if not k.startswith("__") and v:
+                parts.append(f"- {k}: {str(v)[:200]}")
+        parts.append("")
+
+    lab_reports = (parent.context or {}).get("lab_reports", [])
+    if lab_reports:
+        parts.append("## Lab Reports")
+        for r in lab_reports:
+            for ind in r.get("indicators", [])[:10]:
+                abn = " [ABNORMAL]" if ind.get("abnormal") else ""
+                parts.append(f"  - {ind.get('indicator_name', '?')}: {ind.get('value', '?')}{abn}")
+        parts.append("")
+
+    # Sibling conversations
+    from sqlalchemy import select as _sel
+    sib_stmt = (
+        _sel(AgentSession)
+        .where(AgentSession.parent_session_id == parent.id)
+        .where(AgentSession.session_type == AgentSessionType.CONVERSATION)
+        .order_by(AgentSession.created_at.asc())
+    )
+    sib_result = await db.execute(sib_stmt)
+    siblings = sib_result.scalars().all()
+    if siblings:
+        parts.append("## Previous Conversation")
+        for sib in siblings:
+            ctx = sib.context or {}
+            um = ctx.get("user_message", "")
+            ar = ctx.get("assistant_response", "")
+            if um:
+                parts.append(f"User: {um[:200]}")
+            if ar:
+                parts.append(f"Assistant: {ar[:300]}")
+            parts.append("")
+
+    # Historical cases (registered users)
+    if user_id:
+        try:
+            from app.tools.medical import QueryPatientHistoryTool
+            ht = QueryPatientHistoryTool()
+            hr = await ht.execute(patient_id=user_id, limit=3, include_documents=False)
+            cases = hr.get("cases", [])
+            if cases:
+                parts.append("## Historical Cases")
+                for c in cases[:3]:
+                    cc = c.get("chief_complaint") or c.get("title", "?")
+                    parts.append(f"- {cc}")
+                    dd = c.get("diagnosis_doctor") or c.get("ai_diagnosis_summary", "")
+                    if dd:
+                        parts.append(f"  Dx: {dd[:150]}")
+                parts.append("")
+        except Exception:
+            pass
+
+    parts.append("---\nRespond based on all above context.")
+    return "\n".join(parts)
+
+
 # ---------------------------------------------------------------------------
 # Helper: DiagnosisReport → Markdown
 # ---------------------------------------------------------------------------
@@ -790,21 +875,6 @@ Use Markdown formatting for readability.""",
                     else:
                         _log.warning("[DEBUG-T3] route_stream: bridge EMPTY for key=%s, bridge_keys=%s", query_sid, list(_session_lab_bridge.keys()))
 
-            # P0-2: Inject full session context for post-diagnosis conversation
-            if query_sid and intent != "diagnosis":
-                try:
-                    s = await db.get(AgentSession, uuid.UUID(query_sid))
-                    if s and s.context:
-                        interview_data = s.context.get("interview", {})
-                        if interview_data.get("phase") == "completed":
-                            await _build_conversation_context(
-                                db, query_sid, messages, intent,
-                                user_id=actual_patient_id
-                            )
-                except (ValueError, Exception):
-                    pass
-
-            # 真实工具调用 + 流式输出
             if intent == "diagnosis":
                 # ─── Interview phase: collect info before diagnosis ───
                 # Create a session to persist interview state (if not already loaded)
@@ -1146,6 +1216,90 @@ async def route_stream_continue(
             yield f"event: error\ndata: {json.dumps({'error': _err_msg})}\n\n"
 
         yield f"event: complete\ndata: {json.dumps({'message': '✅ 响应完成'})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "X-Accel-Buffering": "no",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Plan C: Post-Diagnosis Chat Endpoint
+# ---------------------------------------------------------------------------
+
+class ChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=2000)
+    patient_history: str | None = Field(None, max_length=5000)
+
+
+@router.post("/sessions/{session_id}/chat")
+async def chat_session(
+    session_id: str,
+    req: ChatRequest,
+    request: Request,
+    ctx: CurrentUserContextLenient,
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    import uuid as _uuid
+
+    try:
+        parent = await db.get(AgentSession, _uuid.UUID(session_id))
+    except (ValueError, Exception):
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if not parent:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    interview_data = (parent.context or {}).get("interview", {})
+    if interview_data.get("phase") != "completed":
+        raise HTTPException(status_code=400, detail="Diagnosis not yet completed")
+
+    actual_patient_id = str(ctx.user.id) if ctx.user and ctx.user.id else None
+
+    child = AgentSession(
+        user_id=parent.user_id,
+        guest_session_id=parent.guest_session_id,
+        session_type=AgentSessionType.CONVERSATION,
+        status=AgentSessionStatus.ACTIVE,
+        parent_session_id=parent.id,
+        context={"user_message": req.message},
+    )
+    db.add(child)
+    await db.commit()
+    await db.refresh(child)
+
+    async def event_generator():
+        try:
+            system_prompt = await _build_chat_context(db, parent, user_id=actual_patient_id)
+
+            async with async_session_maker() as chat_db:
+                llm = LLMService(provider=None, platform=ctx.platform, db=chat_db)
+                full_response = ""
+                async for chunk in llm.chat_stream(
+                    messages=[{"role": "user", "content": req.message}],
+                    system_prompt=system_prompt,
+                    max_tokens=2048,
+                ):
+                    full_response += chunk
+                    yield f"event: text\ndata: {json.dumps({'text': chunk})}\n\n"
+
+            child.context = {
+                **(child.context or {}),
+                "assistant_response": full_response,
+            }
+            child.status = AgentSessionStatus.COMPLETED
+            child.completed_at = datetime.now(timezone.utc)
+            await db.commit()
+
+            yield f"event: complete\ndata: {json.dumps({'session_id': str(child.id), 'parent_session_id': str(parent.id)})}\n\n"
+
+        except Exception as e:
+            yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
 
     return StreamingResponse(
         event_generator(),
