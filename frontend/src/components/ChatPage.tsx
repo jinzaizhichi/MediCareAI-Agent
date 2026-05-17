@@ -187,9 +187,9 @@ export default function ChatPage() {
         });
       };
 
-      try {
-        if (chatMode === 'diagnosed' && backendSessionIdRef.current) {
-          // Plan C: post-diagnosis conversation via dedicated chat endpoint
+      // Plan C: diagnosed mode routes to dedicated chat endpoint
+      if (chatMode === 'diagnosed' && backendSessionIdRef.current) {
+        try {
           await agentApi.streamChat(
             backendSessionIdRef.current,
             text,
@@ -224,13 +224,17 @@ export default function ChatPage() {
               }
             }
           );
-        } else {
-          const effectiveSessionId = (chatMode === 'diagnosed' && backendSessionIdRef.current)
-            ? backendSessionIdRef.current
-            : currentSessionId;
-          await agentApi.streamDiagnose(
-            { message: text, session_id: effectiveSessionId, patient_history: patientHistory },
-            (event: SSEEvent) => {
+        } catch {
+          setMessages((prev) => [...prev, { id: generateId(), role: 'agent', content: `连接失败，请检查网络后重试`, timestamp: new Date() }]);
+          setIsStreaming(false);
+        }
+        return;
+      }
+
+      try {
+        await agentApi.streamDiagnose(
+          { message: text, session_id: currentSessionId, patient_history: patientHistory },
+          (event: SSEEvent) => {
             switch (event.event) {
               case 'intent': {
                 const intent = event.data?.intent as string || 'diagnosis';
