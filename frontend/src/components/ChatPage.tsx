@@ -410,7 +410,6 @@ export default function ChatPage() {
         setMessages((prev) => [...prev, { id: generateId(), role: 'agent', content: `❌ 连接失败，请检查网络后重试`, timestamp: new Date() }]);
         setIsStreaming(false);
       }
-      }
     },
     [isStreaming, currentSessionId, chatMode]
   );
