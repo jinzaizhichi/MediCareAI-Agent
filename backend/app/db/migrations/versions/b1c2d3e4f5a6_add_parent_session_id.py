@@ -5,7 +5,7 @@ Plan B+C: Add session hierarchy for post-diagnosis conversation.
 - CONVERSATION: new AgentSessionType enum value
 
 Revision ID: b1c2d3e4f5a6
-Revises: 280f5fca0584
+Revises: f919ea76667a
 Create Date: 2026-05-17
 """
 from typing import Sequence, Union
@@ -15,7 +15,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 revision: str = 'b1c2d3e4f5a6'
-down_revision: Union[str, Sequence[str], None] = '280f5fca0584'
+down_revision: Union[str, Sequence[str], None] = 'f919ea76667a'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
