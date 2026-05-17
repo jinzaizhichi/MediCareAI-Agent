@@ -12,9 +12,10 @@ interface Props {
   quickReplies?: string[];
   onQuickReply?: (text: string) => void;
   onFileUpload?: (file: File) => void;
+  placeholder?: string;
 }
 
-export default function ChatInput({ onSend, disabled = false, quickReplies, onQuickReply, onFileUpload }: Props) {
+export default function ChatInput({ onSend, disabled = false, quickReplies, onQuickReply, onFileUpload, placeholder }: Props) {
   const [text, setText] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -80,7 +81,7 @@ export default function ChatInput({ onSend, disabled = false, quickReplies, onQu
           fullWidth
           multiline
           maxRows={4}
-          placeholder={disabled ? '请稍候...' : '描述您的症状...'}
+              placeholder={disabled ? '请稍候...' : (placeholder || '描述您的症状...')}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}

@@ -45,6 +45,9 @@ export default function ChatPage() {
   const [reportData, setReportData] = useState<DiagnosisReport | null>(null);
   const [showReport, setShowReport] = useState(false);
   const [isDiagnosed, setIsDiagnosed] = useState(false);
+  type ChatMode = 'idle' | 'consulting' | 'diagnosed';
+  const [chatMode, setChatMode] = useState<ChatMode>('idle');
+  const backendSessionIdRef = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const didInit = useRef(false);
@@ -135,6 +138,10 @@ export default function ChatPage() {
     async (text: string) => {
       if (isStreaming || !currentSessionId) return;
 
+      if (chatMode === 'idle') {
+        setChatMode('consulting');
+      }
+
       if (!getToken()) {
         localStorage.removeItem('guest_token');
         localStorage.removeItem('guest_status');
@@ -181,8 +188,11 @@ export default function ChatPage() {
       };
 
       try {
+        const effectiveSessionId = (chatMode === 'diagnosed' && backendSessionIdRef.current)
+          ? backendSessionIdRef.current
+          : currentSessionId;
         await agentApi.streamDiagnose(
-          { message: text, session_id: currentSessionId, patient_history: patientHistory },
+          { message: text, session_id: effectiveSessionId, patient_history: patientHistory },
           (event: SSEEvent) => {
             switch (event.event) {
               case 'intent': {
@@ -258,6 +268,8 @@ export default function ChatPage() {
                 setReportData(structured);
                 setShowReport(true);
                 setIsDiagnosed(true);
+                setChatMode('diagnosed');
+                pendingSessionRef.current = null;
                 setMessages((prev) => {
                   const idx = prev.findIndex((m) => m.id === agentMsgId);
                   if (idx === -1) return prev;
@@ -325,18 +337,17 @@ export default function ChatPage() {
                 break;
               }
               case 'complete': {
+                const sid = event.data?.session_id as string;
+                if (sid) backendSessionIdRef.current = sid;
                 const status = event.data?.status as string;
                 if (status === 'waiting_for_answer') {
-                  const sid = event.data?.session_id as string;
                   if (sid) {
                     if (!pendingSessionRef.current) {
                       pendingSessionRef.current = { sessionId: sid, questionId: '' };
                     } else {
                       pendingSessionRef.current.sessionId = sid;
-                      // Keep the existing questionId, don't overwrite it
                     }
                   }
-                  // Keep isStreaming=true so InterviewQuestion stays enabled
                   break;
                 }
                 addStep({
@@ -363,11 +374,14 @@ export default function ChatPage() {
         setIsStreaming(false);
       }
     },
-    [isStreaming, currentSessionId]
+    [isStreaming, currentSessionId, chatMode]
   );
 
   const handleInterviewAnswer = useCallback(
     async (questionId: string, answer: string) => {
+      // P0-1: Block interview answers after diagnosis
+      if (chatMode === 'diagnosed') return;
+
       const pending = pendingSessionRef.current;
       if (!pending?.sessionId) return;
 
@@ -467,6 +481,8 @@ export default function ChatPage() {
                 setReportData(structured);
                 setShowReport(true);
                 setIsDiagnosed(true);
+                setChatMode('diagnosed');
+                pendingSessionRef.current = null;
                 setMessages((prev) => {
                   const idx = prev.findIndex((m) => m.id === agentMsgId);
                   if (idx === -1) return prev;
@@ -549,6 +565,7 @@ export default function ChatPage() {
                 }
                 if (status === 'already_diagnosed') {
                   setIsDiagnosed(true);
+                  setChatMode('diagnosed');
                   setMessages((prev) => {
                     const idx = prev.findIndex((m) => m.id === agentMsgId);
                     if (idx === -1) {
@@ -640,7 +657,10 @@ export default function ChatPage() {
               // Immediately post completed lab report to the session
               try {
                 const token = getToken();
-                await fetch(`/api/v1/agents/sessions/${currentSessionId}/lab-reports`, {
+                const uploadSessionId = (chatMode === 'diagnosed' && backendSessionIdRef.current)
+                  ? backendSessionIdRef.current
+                  : currentSessionId;
+                await fetch(`/api/v1/agents/sessions/${uploadSessionId}/lab-reports`, {
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
@@ -697,7 +717,7 @@ export default function ChatPage() {
         );
       }
     },
-    [currentSessionId]
+    [currentSessionId, chatMode]
   );
 
   const handleNewChat = useCallback(() => {
@@ -749,7 +769,7 @@ export default function ChatPage() {
           <div ref={messagesEndRef} />
         </Box>
 
-        {!isDiagnosed && (
+        {chatMode === 'consulting' && (
           <PendingCardsPanel
             messages={messages}
             answeredIds={answeredIds}
@@ -778,19 +798,15 @@ export default function ChatPage() {
         )}
 
         <Box sx={{ p: 2, borderTop: '1px solid #F5E6D3', bgcolor: 'background.paper' }}>
-          {pendingSessionRef.current ? (
+          {chatMode === 'consulting' ? (
             <Typography variant="body2" color="text.secondary" align="center" sx={{ py: 1 }}>
               📋 正在问诊中，请通过下方问诊卡选择最佳答案
-            </Typography>
-          ) : isDiagnosed ? (
-            <Typography variant="body2" color="text.secondary" align="center" sx={{ py: 1 }}>
-              ✅ 问诊已完成，诊断报告已生成
             </Typography>
           ) : (
             <ChatInput
               onSend={handleSend}
               disabled={isStreaming}
-              quickReplies={messages.length <= 2 ? QUICK_REPLIES : undefined}
+              quickReplies={chatMode === 'idle' && messages.length <= 2 ? QUICK_REPLIES : undefined}
               onQuickReply={handleQuickReply}
               onFileUpload={handleFileUpload}
             />

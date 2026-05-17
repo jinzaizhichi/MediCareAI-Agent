@@ -133,6 +133,11 @@ async def create_case(
         title=data.title,
         description=data.description,
         status=data.status,
+        chief_complaint=data.chief_complaint,
+        ai_diagnosis_summary=data.ai_diagnosis_summary,
+        severity=data.severity,
+        is_emergency=data.is_emergency,
+        source_session_id=data.source_session_id,
     )
     db.add(case)
     await db.commit()

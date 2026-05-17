@@ -54,6 +54,148 @@ def _inject_lab_context(messages: list[dict[str, str]], lab_reports: list[dict[s
     messages.insert(0, {"role": "system", "content": lab_text})
 
 
+async def _build_conversation_context(
+    db: AsyncSession,
+    query_sid: str,
+    messages: list[dict[str, str]],
+    intent: str,
+    user_id: str | None = None,
+) -> None:
+    """Inject full session context for post-diagnosis conversation (P0-2).
+
+    When session phase is 'completed' and intent is not 'diagnosis',
+    loads the diagnosis report, interview history, lab reports, and
+    historical cases (for registered users) into the system prompt.
+    """
+    import uuid as _uuid
+
+    try:
+        session = await db.get(AgentSession, _uuid.UUID(query_sid))
+    except (ValueError, Exception):
+        return
+
+    if not session or not session.context:
+        return
+
+    interview_data = session.context.get("interview")
+    if not interview_data:
+        return
+
+    phase = interview_data.get("phase", "")
+    if phase != "completed":
+        return
+
+    context_parts = [
+        "## Patient Session Context\n"
+        "The following is the complete consultation history and diagnosis for this patient. "
+        "Base your response on this context.\n"
+    ]
+
+    # 1. Diagnosis Report
+    if session.structured_output:
+        report = session.structured_output
+        context_parts.append("### Previous Diagnosis Report")
+        context_parts.append(f"**Primary Diagnosis**: {report.get('primary_diagnosis', 'Unknown')}")
+        context_parts.append(f"**Severity**: {report.get('severity', 'Unknown')}")
+        context_parts.append(f"**Confidence**: {report.get('confidence', 'Unknown')}")
+        if report.get('differential_diagnoses'):
+            context_parts.append("**Differential Diagnoses**:")
+            for d in report['differential_diagnoses'][:5]:
+                if isinstance(d, dict):
+                    context_parts.append(f"  - {d.get('diagnosis', '')}")
+        if report.get('key_findings'):
+            context_parts.append(f"**Key Findings**: {'; '.join(str(f) for f in report['key_findings'][:5])}")
+        if report.get('recommended_actions'):
+            context_parts.append(f"**Recommended Actions**: {'; '.join(str(a) for a in report['recommended_actions'][:5])}")
+        if report.get('red_flags'):
+            context_parts.append(f"**Red Flags**: {'; '.join(str(r) for r in report['red_flags'])}")
+        context_parts.append("")
+
+    # 2. Interview Q&A Summary
+    collected = interview_data.get("collected_info", {})
+    if collected:
+        context_parts.append("### Collected Clinical Information")
+        for k, v in collected.items():
+            if not k.startswith("__") and v:
+                v_str = str(v)[:200]
+                context_parts.append(f"- **{k}**: {v_str}")
+        context_parts.append("")
+
+    # 3. Lab Reports
+    lab_reports = session.context.get("lab_reports", [])
+    if lab_reports:
+        context_parts.append("### Lab / Examination Reports")
+        for i, r in enumerate(lab_reports):
+            indicators = r.get("indicators", [])
+            if indicators:
+                context_parts.append(f"**Report {i + 1}** (confidence: {int(r.get('overall_confidence', 0) * 100)}%):")
+                for ind in indicators[:10]:
+                    abn = " [ABNORMAL]" if ind.get("abnormal") else ""
+                    context_parts.append(
+                        f"  - {ind.get('indicator_name', '?')}: "
+                        f"{ind.get('value', '?')} {ind.get('unit', '')}{abn}"
+                    )
+        context_parts.append("")
+
+    # 4. Historical Cases (registered users only)
+    if user_id:
+        try:
+            from app.tools.medical import QueryPatientHistoryTool
+            history_tool = QueryPatientHistoryTool()
+            history_result = await history_tool.execute(
+                patient_id=user_id, limit=5, include_documents=False
+            )
+            cases = history_result.get("cases", [])
+            if cases:
+                context_parts.append("### Patient Historical Cases")
+                for case in cases[:5]:
+                    cc = case.get("chief_complaint") or case.get("title", "Unknown")
+                    context_parts.append(f"- [{case.get('status', '?')}] {cc}")
+                    dd = case.get("diagnosis_doctor") or case.get("ai_diagnosis_summary", "")
+                    if dd:
+                        context_parts.append(f"  Diagnosis: {dd[:150]}")
+                context_parts.append("")
+
+            # Load Health Profile
+            try:
+                from sqlalchemy import select as _select
+                from app.models.agent import PatientHealthProfile
+                stmt = _select(PatientHealthProfile).where(
+                    PatientHealthProfile.patient_id == _uuid.UUID(user_id)
+                )
+                result = await db.execute(stmt)
+                profile = result.scalar_one_or_none()
+                if profile:
+                    context_parts.append("### Patient Health Profile")
+                    if profile.health_summary:
+                        context_parts.append(f"**Overview**: {profile.health_summary[:300]}")
+                    if profile.disease_patterns and isinstance(profile.disease_patterns, dict):
+                        rc = profile.disease_patterns.get("recurrent_conditions", [])
+                        if rc:
+                            context_parts.append(f"**Common Issues**: {', '.join(str(c) for c in rc[:5])}")
+                    if profile.medication_history and isinstance(profile.medication_history, dict):
+                        cur = profile.medication_history.get("current", [])
+                        if cur:
+                            context_parts.append(f"**Current Medications**: {', '.join(str(m) for m in cur[:5])}")
+                        ar = profile.medication_history.get("adverse_reactions", [])
+                        if ar:
+                            context_parts.append(f"**Adverse Reactions**: {', '.join(str(a) for a in ar[:5])}")
+                    if profile.risk_factors and isinstance(profile.risk_factors, dict):
+                        risks = [f"{k}: {v}" for k, v in profile.risk_factors.items() if v]
+                        if risks:
+                            context_parts.append(f"**Risk Factors**: {'; '.join(risks[:5])}")
+                    context_parts.append("")
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    context_text = "\n".join(context_parts)
+    context_text += "\n---\nBased on the above context and the user's new message, provide a professional, coherent response."
+
+    messages.insert(0, {"role": "system", "content": context_text})
+
+
 # ---------------------------------------------------------------------------
 # Helper: DiagnosisReport → Markdown
 # ---------------------------------------------------------------------------
@@ -648,6 +790,20 @@ Use Markdown formatting for readability.""",
                     else:
                         _log.warning("[DEBUG-T3] route_stream: bridge EMPTY for key=%s, bridge_keys=%s", query_sid, list(_session_lab_bridge.keys()))
 
+            # P0-2: Inject full session context for post-diagnosis conversation
+            if query_sid and intent != "diagnosis":
+                try:
+                    s = await db.get(AgentSession, uuid.UUID(query_sid))
+                    if s and s.context:
+                        interview_data = s.context.get("interview", {})
+                        if interview_data.get("phase") == "completed":
+                            await _build_conversation_context(
+                                db, query_sid, messages, intent,
+                                user_id=actual_patient_id
+                            )
+                except (ValueError, Exception):
+                    pass
+
             # 真实工具调用 + 流式输出
             if intent == "diagnosis":
                 # ─── Interview phase: collect info before diagnosis ───
@@ -734,6 +890,32 @@ Use Markdown formatting for readability.""",
                             report_md = _diagnosis_report_to_markdown(workflow_result.structured_output.model_dump())
                             for chunk in _chunk_text(report_md, chunk_size=80):
                                 yield f"event: text\ndata: {json.dumps({'text': chunk})}\n\n"
+
+                            # Plan C: Auto-create MedicalCase for registered users
+                            if actual_patient_id and session_id:
+                                try:
+                                    from app.models.medical_case import MedicalCase as MC, CaseStatus as CS
+                                    from sqlalchemy import select as _sel
+                                    existing = await db.execute(
+                                        _sel(MC).where(MC.source_session_id == uuid.UUID(session_id))
+                                    )
+                                    if not existing.scalar_one_or_none():
+                                        report = workflow_result.structured_output.model_dump()
+                                        chief = interview_data.get("chief_complaint", message) if 'interview_data' in dir() else message
+                                        mc = MC(
+                                            patient_id=uuid.UUID(actual_patient_id),
+                                            source_session_id=uuid.UUID(session_id),
+                                            title=f"AI Diagnosis: {report.get('primary_diagnosis', 'Unknown')[:50]}",
+                                            chief_complaint=chief,
+                                            ai_diagnosis_summary=report.get('primary_diagnosis', '')[:500],
+                                            severity=report.get('severity', 'unknown'),
+                                            is_emergency=(report.get('severity') == 'emergency'),
+                                            status=CS.PENDING_REVIEW,
+                                        )
+                                        db.add(mc)
+                                        await db.commit()
+                                except Exception:
+                                    pass
                         else:
                             content = workflow_result.content if isinstance(workflow_result.content, str) else ''
                             for chunk in _chunk_text(content, chunk_size=80):

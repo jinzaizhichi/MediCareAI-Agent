@@ -1,4 +1,4 @@
-"""Medical case and document schemas."""
+"""Medical case and document schemas — Plan C."""
 
 import uuid
 from datetime import datetime
@@ -11,8 +11,6 @@ from app.models.medical_case import CaseStatus, DocumentType
 # ─── MedicalDocument ───────────────────────────────────────────
 
 class MedicalDocumentBase(BaseModel):
-    """Base medical document schema."""
-
     document_type: DocumentType = DocumentType.OTHER
     title: str = Field(..., min_length=1, max_length=255)
     file_path: str | None = Field(None, max_length=500)
@@ -22,23 +20,17 @@ class MedicalDocumentBase(BaseModel):
 
 
 class MedicalDocumentCreate(MedicalDocumentBase):
-    """Create medical document."""
     pass
 
 
 class MedicalDocumentUpdate(BaseModel):
-    """Update medical document."""
-
     document_type: DocumentType | None = None
     title: str | None = Field(None, max_length=255)
     content_text: str | None = None
 
 
 class MedicalDocumentResponse(MedicalDocumentBase):
-    """Medical document response."""
-
     model_config = ConfigDict(from_attributes=True)
-
     id: uuid.UUID
     case_id: uuid.UUID
     uploaded_by: uuid.UUID | None
@@ -48,53 +40,52 @@ class MedicalDocumentResponse(MedicalDocumentBase):
 # ─── MedicalCase ───────────────────────────────────────────
 
 class MedicalCaseBase(BaseModel):
-    """Base medical case schema."""
-
     title: str = Field(..., min_length=1, max_length=255)
     description: str | None = None
-    status: CaseStatus = CaseStatus.ACTIVE
+    status: CaseStatus = CaseStatus.PENDING_REVIEW
+    chief_complaint: str | None = None
+    ai_diagnosis_summary: str | None = None
+    severity: str | None = None
+    is_emergency: bool = False
 
 
 class MedicalCaseCreate(MedicalCaseBase):
-    """Create medical case (patient creates their own case)."""
-    pass
+    source_session_id: uuid.UUID | None = None
 
 
 class MedicalCaseUpdate(BaseModel):
-    """Update medical case."""
-
     title: str | None = Field(None, max_length=255)
     description: str | None = None
     status: CaseStatus | None = None
-    diagnosis_doctor: str | None = None
+    chief_complaint: str | None = None
+    severity: str | None = None
 
 
 class MedicalCaseDoctorUpdate(BaseModel):
-    """Doctor-only update fields."""
-
-    diagnosis_doctor: str | None = None
+    doctor_diagnosis: str | None = None
+    doctor_notes: str | None = None
+    treatment_plan: dict | None = None
     status: CaseStatus | None = None
-    doctor_id: uuid.UUID | None = None
+    follow_up_due_at: datetime | None = None
+    assigned_doctor_id: uuid.UUID | None = None
 
 
 class MedicalCaseResponse(MedicalCaseBase):
-    """Medical case response."""
-
     model_config = ConfigDict(from_attributes=True)
-
     id: uuid.UUID
     patient_id: uuid.UUID
-    doctor_id: uuid.UUID | None
-    diagnosis_ai: str | None
-    diagnosis_doctor: str | None
+    assigned_doctor_id: uuid.UUID | None
+    source_session_id: uuid.UUID | None
+    doctor_diagnosis: str | None
+    doctor_notes: str | None
+    treatment_plan: dict | None
+    follow_up_due_at: datetime | None
     created_at: datetime
     updated_at: datetime
-    closed_at: datetime | None
+    resolved_at: datetime | None
     documents: list[MedicalDocumentResponse] = []
 
 
 class MedicalCaseListResponse(BaseModel):
-    """Paginated list of medical cases."""
-
     total: int
     items: list[MedicalCaseResponse]

@@ -66,7 +66,7 @@ async def get_dashboard_stats(
     # Count pending cases assigned to this doctor
     stmt = select(func.count(MedicalCase.id)).where(
         MedicalCase.assigned_doctor_id == ctx.user.id,
-        MedicalCase.status == CaseStatus.PENDING
+        MedicalCase.status == CaseStatus.PENDING_REVIEW
     )
     result = await db.execute(stmt)
     pending_count = result.scalar() or 0
@@ -131,7 +131,7 @@ async def list_doctor_cases(
 
         patients.append({
             "id": str(case.id),
-            "name": patient.name if patient else "未知患者",
+            "name": patient.full_name if patient else "未知患者",
             "avatar": None,
             "last_activity": case.updated_at.isoformat() if case.updated_at else "",
             "agent_summary": agent_summary,
@@ -188,9 +188,9 @@ async def get_case_detail(
         "patient_name": patient.name if patient else "未知患者",
         "title": case.title,
         "description": case.description,
-        "diagnosis": case.diagnosis,
-        "agent_summary": case.ai_summary or "",
-        "structured_report": case.structured_data,
+        "diagnosis": case.doctor_diagnosis or case.ai_diagnosis_summary,
+        "agent_summary": case.ai_diagnosis_summary or "",
+        "structured_report": case.ai_diagnosis_summary,
         "status": case.status.value if case.status else "pending",
         "timeline": timeline,
         "created_at": case.created_at.isoformat() if case.created_at else "",
