@@ -1,12 +1,5 @@
 import { useEffect, useState } from 'react';
 import { Box, Typography, Button, LinearProgress, Paper, keyframes, IconButton } from '@mui/material';
-import {
-  CheckCircleOutline,
-  HourglassBottom,
-  Science,
-  TipsAndUpdates,
-  Close,
-} from '@mui/icons-material';
 
 interface UploadItem {
   fileId: string;
@@ -55,23 +48,19 @@ export default function UploadStatusBanner({ uploads, onDismiss }: Props) {
 
   if (uploads.length === 0 && !readyVisible) return null;
 
-  // State C: ready — all reports parsed
   if (readyVisible && allDone) {
     return (
       <Paper
         elevation={0}
         sx={{
-          mx: 2,
-          mb: 1.5,
-          p: 2,
-          borderRadius: 3,
+          mx: 2, mb: 1.5, p: 2, borderRadius: 3,
           background: 'linear-gradient(135deg, #E8F5E9 0%, #F1F8E9 100%)',
           border: '1px solid #A5D6A7',
           animation: `${fadeInUp} 0.35s ease-out`,
         }}
       >
         <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
-          <CheckCircleOutline sx={{ color: '#2E7D32', mt: 0.3, fontSize: 22 }} />
+          <Typography sx={{ fontSize: 22, lineHeight: 1 }}>✅</Typography>
           <Box sx={{ flex: 1 }}>
             <Typography variant="body2" sx={{ color: '#1B5E20', fontWeight: 600, mb: 0.3 }}>
               {completedCount} 份报告已解读完成
@@ -92,23 +81,26 @@ export default function UploadStatusBanner({ uploads, onDismiss }: Props) {
     );
   }
 
-  // State B: parsing in progress
   if (hasParsing) {
     const progress = uploads.length > 0 ? (completedCount / uploads.length) * 100 : 0;
     return (
       <Paper
         elevation={0}
         sx={{
-          mx: 2,
-          mb: 1.5,
-          p: 2,
-          borderRadius: 3,
+          mx: 2, mb: 1.5, p: 2, borderRadius: 3,
           background: 'linear-gradient(135deg, #FFF8E1 0%, #FFF3E0 100%)',
           border: '1px solid #FFE082',
         }}
       >
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
-          <Science sx={{ color: '#E65100', animation: `${pulse} 1.5s ease-in-out infinite`, fontSize: 20 }} />
+          <Typography
+            sx={{
+              fontSize: 20,
+              animation: `${pulse} 1.5s ease-in-out infinite`,
+            }}
+          >
+            🔬
+          </Typography>
           <Typography variant="body2" sx={{ color: '#BF360C', fontWeight: 600 }}>
             正在解读您上传的 {uploads.length} 份报告
           </Typography>
@@ -118,10 +110,7 @@ export default function UploadStatusBanner({ uploads, onDismiss }: Props) {
           variant="determinate"
           value={progress}
           sx={{
-            mb: 1.5,
-            height: 6,
-            borderRadius: 3,
-            bgcolor: '#FFECB3',
+            mb: 1.5, height: 6, borderRadius: 3, bgcolor: '#FFECB3',
             '& .MuiLinearProgress-bar': {
               borderRadius: 3,
               background: 'linear-gradient(90deg, #FF8F00, #FF6F00)',
@@ -132,13 +121,9 @@ export default function UploadStatusBanner({ uploads, onDismiss }: Props) {
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, mb: 1 }}>
           {uploads.map((u) => (
             <Box key={u.fileId} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              {u.status === 'completed' ? (
-                <CheckCircleOutline sx={{ color: '#2E7D32', fontSize: 16 }} />
-              ) : u.status === 'failed' ? (
-                <Close sx={{ color: '#C62828', fontSize: 16 }} />
-              ) : (
-                <HourglassBottom sx={{ color: '#E65100', fontSize: 16, animation: `${pulse} 1.5s ease-in-out infinite` }} />
-              )}
+              <Typography sx={{ fontSize: 14 }}>
+                {u.status === 'completed' ? '✅' : u.status === 'failed' ? '❌' : '🔄'}
+              </Typography>
               <Typography variant="caption" sx={{ color: u.status === 'failed' ? '#C62828' : '#5D4037' }}>
                 📄 {u.fileName}
                 {u.status === 'completed' && ' — 已解读'}
@@ -156,26 +141,21 @@ export default function UploadStatusBanner({ uploads, onDismiss }: Props) {
     );
   }
 
-  // State A: idle — subtle reminder
   return (
     <Paper
       elevation={0}
       sx={{
-        mx: 2,
-        mb: 1.5,
-        p: 1.5,
-        borderRadius: 3,
-        background: '#F3F8FD',
-        border: '1px solid #BBDEFB',
+        mx: 2, mb: 1.5, p: 1.5, borderRadius: 3,
+        background: '#F3F8FD', border: '1px solid #BBDEFB',
       }}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        <TipsAndUpdates sx={{ color: '#1565C0', fontSize: 18 }} />
+        <Typography sx={{ fontSize: 16 }}>💡</Typography>
         <Typography variant="body2" sx={{ color: '#0D47A1', flex: 1 }}>
           如有新的检查报告，建议先上传，等待解读完成后再提问，分析会更全面
         </Typography>
         <IconButton size="small" onClick={onDismiss} sx={{ color: '#1565C0', p: 0.5 }}>
-          <Close sx={{ fontSize: 16 }} />
+          <Typography sx={{ fontSize: 14, lineHeight: 1 }}>✕</Typography>
         </IconButton>
       </Box>
     </Paper>
