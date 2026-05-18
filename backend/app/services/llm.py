@@ -328,17 +328,26 @@ class LLMService:
         if system_prompt:
             msgs.insert(0, {"role": "system", "content": system_prompt})
 
+        _model = model or default_model
+        logger.info("[LLM_STREAM] provider=%s model=%s msgs=%d max_tokens=%d system_prompt_len=%d",
+                     self.provider, _model, len(msgs), max_tokens or 0, len(system_prompt or ""))
+
         stream = await client.chat.completions.create(
-            model=model or default_model,
+            model=_model,
             messages=msgs,  # type: ignore[arg-type]
             max_tokens=max_tokens,
             stream=True,
         )
 
+        chunk_count = 0
         async for chunk in stream:
             delta = chunk.choices[0].delta.content
             if delta:
+                chunk_count += 1
                 yield delta
+
+        logger.info("[LLM_STREAM_DONE] provider=%s model=%s chunks=%d",
+                     self.provider, _model, chunk_count)
 
     # ------------------------------------------------------------------
     # Tool Use / Function Calling
