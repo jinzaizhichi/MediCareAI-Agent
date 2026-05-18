@@ -20,6 +20,13 @@ import ChatInput from './ChatInput';
 import GuestBanner from './GuestBanner';
 import PendingCardsPanel from './PendingCardsPanel';
 import FullScreenReport from './FullScreenReport';
+import UploadStatusBanner from './UploadStatusBanner';
+
+interface UploadItem {
+  fileId: string;
+  fileName: string;
+  status: 'parsing' | 'completed' | 'failed';
+}
 
 
 const QUICK_REPLIES = [
@@ -52,6 +59,8 @@ export default function ChatPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const didInit = useRef(false);
   const pendingSessionRef = useRef<{ sessionId: string; questionId: string } | null>(null);
+  const [activeUploads, setActiveUploads] = useState<UploadItem[]>([]);
+  const uploadBannerDismissed = useRef(false);
 
   // 初始化：检查认证状态，未登录时自动创建访客 session
   useEffect(() => {
@@ -122,6 +131,8 @@ export default function ChatPage() {
     backendSessionIdRef.current = null;
     pendingSessionRef.current = null;
     setAnsweredIds(new Set());
+    setActiveUploads([]);
+    uploadBannerDismissed.current = false;
     setMessages([
       {
         id: generateId(),
@@ -666,7 +677,13 @@ export default function ChatPage() {
     async (file: File) => {
       const uploadId = generateId();
 
-      // Insert processing message
+      if (chatMode === 'diagnosed') {
+        setActiveUploads((prev) => [
+          ...prev,
+          { fileId: uploadId, fileName: file.name, status: 'parsing' },
+        ]);
+      }
+
       setMessages((prev) => [
         ...prev,
         {
@@ -690,6 +707,9 @@ export default function ChatPage() {
 
             if (result.status === 'completed' && result.result) {
               clearInterval(poll);
+              setActiveUploads((prev) =>
+                prev.map((u) => (u.fileId === uploadId ? { ...u, status: 'completed' } : u))
+              );
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === uploadId
@@ -719,6 +739,9 @@ export default function ChatPage() {
               }
             } else if (result.status === 'failed') {
               clearInterval(poll);
+              setActiveUploads((prev) =>
+                prev.map((u) => (u.fileId === uploadId ? { ...u, status: 'failed' } : u))
+              );
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === uploadId
@@ -844,6 +867,15 @@ export default function ChatPage() {
         )}
 
         <Box sx={{ p: 2, borderTop: '1px solid #F5E6D3', bgcolor: 'background.paper' }}>
+          {chatMode === 'diagnosed' && !uploadBannerDismissed.current && (
+            <UploadStatusBanner
+              uploads={activeUploads}
+              onDismiss={() => {
+                setActiveUploads([]);
+                uploadBannerDismissed.current = true;
+              }}
+            />
+          )}
           {chatMode === 'consulting' ? (
             <Typography variant="body2" color="text.secondary" align="center" sx={{ py: 1 }}>
               📋 正在问诊中，请通过下方问诊卡选择最佳答案
@@ -855,6 +887,11 @@ export default function ChatPage() {
               quickReplies={chatMode === 'idle' && messages.length <= 2 ? QUICK_REPLIES : undefined}
               onQuickReply={handleQuickReply}
               onFileUpload={handleFileUpload}
+              placeholder={
+                activeUploads.some((u) => u.status === 'parsing')
+                  ? '报告解读完成后提问效果更好哦～'
+                  : undefined
+              }
             />
           )}
         </Box>

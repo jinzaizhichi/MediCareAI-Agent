@@ -606,20 +606,41 @@ async def store_lab_reports(
     reports: list[dict[str, Any]] = Body(default_factory=list),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """Store parsed lab report data via bridge — single-writer to session context."""
+    """Store parsed lab report data via bridge — single-writer to session context.
+
+    Normalizes bridge key to _frontend_sid when session_id is a backend UUID,
+    ensuring all uploads for the same session accumulate under one key regardless
+    of whether the frontend sends a frontend-generated ID or a backend UUID.
+    """
+    import uuid as _uuid
     import logging as _log
     _l = _log.getLogger("debug.t3")
 
-    # Always accumulate in bridge (single source of truth, append-safe)
-    prev = _session_lab_bridge.get(session_id, [])
+    # Normalize bridge key: if session_id resolves to an existing DIAGNOSIS
+    # session via UUID lookup, switch to its _frontend_sid. This prevents
+    # bridge key fragmentation when the frontend transitions from its own
+    # generated IDs to backend UUIDs after diagnosis completion.
+    bridge_key = session_id
+    try:
+        sid = _uuid.UUID(session_id)
+        _s = await db.get(AgentSession, sid)
+        if _s and _s.session_type == AgentSessionType.DIAGNOSIS:
+            fsid = (_s.context or {}).get("_frontend_sid")
+            if fsid:
+                bridge_key = fsid
+    except ValueError:
+        pass
+
+    # Accumulate under normalized bridge key
+    prev = _session_lab_bridge.get(bridge_key, [])
     prev.extend(reports)
-    _session_lab_bridge[session_id] = prev
+    _session_lab_bridge[bridge_key] = prev
 
     # Single writer: flush bridge total to the matched interview session
     await _update_interview_session_lab_data(db, session_id, prev)
 
     _l.info("[DEBUG-T3] store_lab_reports: key=%s reports=%d total_indicators=%d",
-            session_id, len(prev),
+            bridge_key, len(prev),
             sum(len(r.get('indicators', [])) for r in prev))
     return {"status": "stored", "session_id": session_id, "count": len(prev)}
 
