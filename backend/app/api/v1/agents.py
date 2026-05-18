@@ -1339,13 +1339,13 @@ async def chat_session(
 
             async with async_session_maker() as chat_db:
                 llm = LLMService(provider=None, platform=ctx.platform, db=chat_db)
-                full_response = ""
-                async for chunk in llm.chat_stream(
+                response = await llm.chat(
                     messages=[{"role": "user", "content": req.message}],
                     system_prompt=system_prompt,
                     max_tokens=2048,
-                ):
-                    full_response += chunk
+                )
+                full_response = response.content
+                for chunk in _chunk_text(full_response, chunk_size=80):
                     yield f"event: text\ndata: {json.dumps({'text': chunk})}\n\n"
 
             if not full_response:
