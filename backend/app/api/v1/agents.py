@@ -606,54 +606,61 @@ async def store_lab_reports(
     reports: list[dict[str, Any]] = Body(default_factory=list),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """Store parsed lab report data for a session via bridge + optional direct write."""
-    import uuid as _uuid
+    """Store parsed lab report data via bridge — single-writer to session context."""
     import logging as _log
     _l = _log.getLogger("debug.t3")
 
-    # Try to resolve backend UUID → direct context write if session exists
-    _s = None
-    try:
-        sid = _uuid.UUID(session_id)
-        _s = await db.get(AgentSession, sid)
-    except ValueError:
-        pass
-
-    if _s:
-        ctx = dict(_s.context or {})
-        existing = ctx.get("lab_reports", [])
-        existing.extend(reports)
-        ctx["lab_reports"] = existing
-        _s.context = ctx
-        await db.commit()
-
-    # Always accumulate in bridge (append, don't overwrite)
+    # Always accumulate in bridge (single source of truth, append-safe)
     prev = _session_lab_bridge.get(session_id, [])
     prev.extend(reports)
     _session_lab_bridge[session_id] = prev
 
-    # Update interview session with ALL accumulated reports from bridge
+    # Single writer: flush bridge total to the matched interview session
     await _update_interview_session_lab_data(db, session_id, prev)
 
-    _l.info("[DEBUG-T3] store_lab_reports: session_id=%s db_id=%s reports=%d total_indicators=%d",
-            session_id, str(_s.id) if _s else "<bridge_only>", len(prev),
+    _l.info("[DEBUG-T3] store_lab_reports: key=%s reports=%d total_indicators=%d",
+            session_id, len(prev),
             sum(len(r.get('indicators', [])) for r in prev))
-    return {"status": "stored", "session_id": str(_s.id) if _s else session_id, "count": len(prev)}
+    return {"status": "stored", "session_id": session_id, "count": len(prev)}
 
 
 async def _update_interview_session_lab_data(
     db: AsyncSession, frontend_sid: str, lab_reports: list[dict[str, Any]]
 ) -> None:
-    """Find the interview session with matching _frontend_sid and update its lab data."""
+    """Find the diagnosis session and update its lab data.
+
+    Two matching strategies (tried in order):
+    1. UUID lookup — handles when frontend sends backend UUID
+    2. _frontend_sid match — handles when frontend sends its own generated ID
+
+    Always overwrites lab_reports with the accumulated bridge total,
+    which is inherently race-safe regardless of concurrent writes.
+    """
     import uuid as _uuid
     import logging as _log
     _l = _log.getLogger("debug.t3")
     try:
+        # Strategy 1: Try UUID lookup first (handles backend UUID session IDs)
+        try:
+            sid = _uuid.UUID(frontend_sid)
+            s = await db.get(AgentSession, sid)
+            if s and s.session_type == AgentSessionType.DIAGNOSIS:
+                ctx = dict(s.context or {})
+                ctx["lab_reports"] = lab_reports
+                s.context = ctx
+                await db.commit()
+                _l.info("[DEBUG-T3] store_lab_reports: updated via UUID match session %s with %d reports",
+                        str(s.id), len(lab_reports))
+                return
+        except ValueError:
+            pass
+
+        # Strategy 2: Match by _frontend_sid (handles frontend-generated IDs)
+        # No status filter — completed sessions need lab updates for post-diagnosis chat
         from sqlalchemy import select as _select
         stmt = (
             _select(AgentSession)
             .where(AgentSession.session_type == AgentSessionType.DIAGNOSIS)
-            .where(AgentSession.status == AgentSessionStatus.ACTIVE)
             .order_by(AgentSession.created_at.desc())
             .limit(5)
         )
@@ -665,10 +672,10 @@ async def _update_interview_session_lab_data(
                 ctx["lab_reports"] = lab_reports
                 s.context = ctx
                 await db.commit()
-                _l.info("[DEBUG-T3] store_lab_reports: updated interview session %s with %d reports",
+                _l.info("[DEBUG-T3] store_lab_reports: updated via _frontend_sid match session %s with %d reports",
                         str(s.id), len(lab_reports))
                 return
-        _l.info("[DEBUG-T3] store_lab_reports: no matching interview session found for _frontend_sid=%s",
+        _l.info("[DEBUG-T3] store_lab_reports: no matching interview session found for key=%s",
                 frontend_sid)
     except Exception as e:
         _l.warning("[DEBUG-T3] store_lab_reports: failed to update interview session: %s", e)
