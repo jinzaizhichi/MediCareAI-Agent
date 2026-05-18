@@ -278,7 +278,23 @@ async def _build_chat_context(
             pass
 
     parts.append("---\nRespond based on all above context.")
-    return "\n".join(parts)
+    context_text = "\n".join(parts)
+
+    import logging as _diag_log
+    _diag = _diag_log.getLogger("chat.context")
+    _diag.info(
+        "[CHAT-CTX] session=%s total_chars=%d diagnosis=%d collected_keys=%d "
+        "lab_reports=%d lab_indicators=%d siblings=%d",
+        str(parent.id),
+        len(context_text),
+        len(str(parent.structured_output or {})),
+        len(collected),
+        len(lab_reports),
+        sum(len(r.get("indicators", [])) for r in lab_reports),
+        len(siblings) if siblings else 0,
+    )
+
+    return context_text
 
 
 # ---------------------------------------------------------------------------
@@ -1313,6 +1329,14 @@ async def chat_session(
         try:
             system_prompt = await _build_chat_context(db, parent, user_id=actual_patient_id)
 
+            import logging as _llm_log_mod
+            _llm_log = _llm_log_mod.getLogger("chat.llm")
+            _llm_log.info(
+                "[CHAT-LLM] session=%s prompt_chars=%d user_msg_chars=%d est_tokens=%d",
+                session_id, len(system_prompt), len(req.message),
+                (len(system_prompt) + len(req.message)) // 4,
+            )
+
             async with async_session_maker() as chat_db:
                 llm = LLMService(provider=None, platform=ctx.platform, db=chat_db)
                 full_response = ""
@@ -1325,10 +1349,16 @@ async def chat_session(
                     yield f"event: text\ndata: {json.dumps({'text': chunk})}\n\n"
 
             if not full_response:
+                _llm_log.warning(
+                    "[CHAT-EMPTY] session=%s prompt_chars=%d user_msg_chars=%d",
+                    session_id, len(system_prompt), len(req.message),
+                )
                 child.status = AgentSessionStatus.FAILED
                 await db.commit()
                 yield f"event: error\ndata: {json.dumps({'error': 'AI 服务暂时繁忙，无法生成回复。请稍后重试。如急需解读报告，建议立即携带原始报告就医，由医生直接解读。'})}\n\n"
                 return
+
+            _llm_log.info("[CHAT-OK] session=%s response_chars=%d", session_id, len(full_response))
 
             child.context = {
                 **(child.context or {}),
