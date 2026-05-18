@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Box, Typography, Button, LinearProgress, Paper, keyframes } from '@mui/material';
-import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
-import HourglassBottomIcon from '@mui/icons-material/HourglassBottom';
-import ScienceIcon from '@mui/icons-material/Science';
-import TipsAndUpdatesIcon from '@mui/icons-material/TipsAndUpdates';
-import CloseIcon from '@mui/icons-material/Close';
-import IconButton from '@mui/material/IconButton';
+import { Box, Typography, Button, LinearProgress, Paper, keyframes, IconButton } from '@mui/material';
+import {
+  CheckCircleOutline,
+  HourglassBottom,
+  Science,
+  TipsAndUpdates,
+  Close,
+} from '@mui/icons-material';
 
 interface UploadItem {
   fileId: string;
@@ -70,7 +71,7 @@ export default function UploadStatusBanner({ uploads, onDismiss }: Props) {
         }}
       >
         <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
-          <CheckCircleOutlineIcon sx={{ color: '#2E7D32', mt: 0.3, fontSize: 22 }} />
+          <CheckCircleOutline sx={{ color: '#2E7D32', mt: 0.3, fontSize: 22 }} />
           <Box sx={{ flex: 1 }}>
             <Typography variant="body2" sx={{ color: '#1B5E20', fontWeight: 600, mb: 0.3 }}>
               {completedCount} 份报告已解读完成
@@ -107,7 +108,7 @@ export default function UploadStatusBanner({ uploads, onDismiss }: Props) {
         }}
       >
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
-          <ScienceIcon sx={{ color: '#E65100', animation: `${pulse} 1.5s ease-in-out infinite`, fontSize: 20 }} />
+          <Science sx={{ color: '#E65100', animation: `${pulse} 1.5s ease-in-out infinite`, fontSize: 20 }} />
           <Typography variant="body2" sx={{ color: '#BF360C', fontWeight: 600 }}>
             正在解读您上传的 {uploads.length} 份报告
           </Typography>
@@ -132,11 +133,11 @@ export default function UploadStatusBanner({ uploads, onDismiss }: Props) {
           {uploads.map((u) => (
             <Box key={u.fileId} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               {u.status === 'completed' ? (
-                <CheckCircleOutlineIcon sx={{ color: '#2E7D32', fontSize: 16 }} />
+                <CheckCircleOutline sx={{ color: '#2E7D32', fontSize: 16 }} />
               ) : u.status === 'failed' ? (
-                <CloseIcon sx={{ color: '#C62828', fontSize: 16 }} />
+                <Close sx={{ color: '#C62828', fontSize: 16 }} />
               ) : (
-                <HourglassBottomIcon sx={{ color: '#E65100', fontSize: 16, animation: `${pulse} 1.5s ease-in-out infinite` }} />
+                <HourglassBottom sx={{ color: '#E65100', fontSize: 16, animation: `${pulse} 1.5s ease-in-out infinite` }} />
               )}
               <Typography variant="caption" sx={{ color: u.status === 'failed' ? '#C62828' : '#5D4037' }}>
                 📄 {u.fileName}
@@ -169,12 +170,12 @@ export default function UploadStatusBanner({ uploads, onDismiss }: Props) {
       }}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        <TipsAndUpdatesIcon sx={{ color: '#1565C0', fontSize: 18 }} />
+        <TipsAndUpdates sx={{ color: '#1565C0', fontSize: 18 }} />
         <Typography variant="body2" sx={{ color: '#0D47A1', flex: 1 }}>
           如有新的检查报告，建议先上传，等待解读完成后再提问，分析会更全面
         </Typography>
         <IconButton size="small" onClick={onDismiss} sx={{ color: '#1565C0', p: 0.5 }}>
-          <CloseIcon sx={{ fontSize: 16 }} />
+          <Close sx={{ fontSize: 16 }} />
         </IconButton>
       </Box>
     </Paper>
