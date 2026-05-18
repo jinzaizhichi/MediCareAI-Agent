@@ -606,42 +606,39 @@ async def store_lab_reports(
     reports: list[dict[str, Any]] = Body(default_factory=list),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """Store parsed lab report data for a session (creates session if needed)."""
+    """Store parsed lab report data for a session via bridge + optional direct write."""
     import uuid as _uuid
+    import logging as _log
+    _l = _log.getLogger("debug.t3")
+
+    # Try to resolve backend UUID → direct context write if session exists
+    _s = None
     try:
         sid = _uuid.UUID(session_id)
         _s = await db.get(AgentSession, sid)
     except ValueError:
-        _s = None
-    if not _s:
-        _s = AgentSession(
-            id=_uuid.uuid4(),
-            session_type=AgentSessionType.DIAGNOSIS,
-            status=AgentSessionStatus.ACTIVE,
-            intent="diagnosis",
-            context={},
-        )
-        db.add(_s)
+        pass
+
+    if _s:
+        ctx = dict(_s.context or {})
+        existing = ctx.get("lab_reports", [])
+        existing.extend(reports)
+        ctx["lab_reports"] = existing
+        _s.context = ctx
         await db.commit()
-        await db.refresh(_s)
-    ctx = dict(_s.context or {})
-    existing = ctx.get("lab_reports", [])
-    existing.extend(reports)
-    ctx["lab_reports"] = existing
-    _s.context = ctx
-    await db.commit()
-    # Accumulate in bridge (append, don't overwrite)
+
+    # Always accumulate in bridge (append, don't overwrite)
     prev = _session_lab_bridge.get(session_id, [])
     prev.extend(reports)
     _session_lab_bridge[session_id] = prev
+
     # Update interview session with ALL accumulated reports from bridge
     await _update_interview_session_lab_data(db, session_id, prev)
-    import logging as _log
-    _l = _log.getLogger("debug.t3")
+
     _l.info("[DEBUG-T3] store_lab_reports: session_id=%s db_id=%s reports=%d total_indicators=%d",
-            session_id, str(_s.id), len(existing),
-            sum(len(r.get('indicators', [])) for r in existing))
-    return {"status": "stored", "session_id": str(_s.id), "count": len(existing)}
+            session_id, str(_s.id) if _s else "<bridge_only>", len(prev),
+            sum(len(r.get('indicators', [])) for r in prev))
+    return {"status": "stored", "session_id": str(_s.id) if _s else session_id, "count": len(prev)}
 
 
 async def _update_interview_session_lab_data(
@@ -1215,7 +1212,7 @@ async def route_stream_continue(
             _err_msg = f"诊断分析失败: {e}"
             yield f"event: error\ndata: {json.dumps({'error': _err_msg})}\n\n"
 
-        yield f"event: complete\ndata: {json.dumps({'message': '✅ 响应完成'})}\n\n"
+        yield f"event: complete\ndata: {json.dumps({'message': '✅ 响应完成', 'session_id': session_id})}\n\n"
 
     return StreamingResponse(
         event_generator(),
@@ -1256,7 +1253,18 @@ async def chat_session(
         raise HTTPException(status_code=404, detail="Session not found")
 
     interview_data = (parent.context or {}).get("interview", {})
-    if interview_data.get("phase") != "completed":
+    actual_phase = interview_data.get("phase", "<missing>")
+    if actual_phase != "completed":
+        import logging as _chat_log_mod
+        _chat_log = _chat_log_mod.getLogger("chat")
+        _chat_log.error(
+            "[CHAT-400] session=%s expected phase=completed, got=%s, "
+            "has_structured=%s, status=%s",
+            session_id,
+            actual_phase,
+            bool(parent.structured_output),
+            parent.status.value if parent.status else "?",
+        )
         raise HTTPException(status_code=400, detail="Diagnosis not yet completed")
 
     actual_patient_id = str(ctx.user.id) if ctx.user and ctx.user.id else None

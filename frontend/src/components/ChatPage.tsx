@@ -115,6 +115,13 @@ export default function ChatPage() {
     };
     setSessions((prev) => [newSession, ...prev]);
     setCurrentSessionId(id);
+    setChatMode('idle');
+    setIsDiagnosed(false);
+    setReportData(null);
+    setShowReport(false);
+    backendSessionIdRef.current = null;
+    pendingSessionRef.current = null;
+    setAnsweredIds(new Set());
     setMessages([
       {
         id: generateId(),
@@ -698,9 +705,7 @@ export default function ChatPage() {
               // Immediately post completed lab report to the session
               try {
                 const token = getToken();
-                const uploadSessionId = (chatMode === 'diagnosed' && backendSessionIdRef.current)
-                  ? backendSessionIdRef.current
-                  : currentSessionId;
+                const uploadSessionId = backendSessionIdRef.current || currentSessionId;
                 await fetch(`/api/v1/agents/sessions/${uploadSessionId}/lab-reports`, {
                   method: 'POST',
                   headers: {

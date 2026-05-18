@@ -530,12 +530,13 @@ OUTPUT (search query only):"""
             result = await db.execute(stmt)
             session = result.scalar_one_or_none()
             if session:
-                # Only update tool_calls and structured_output — do NOT touch context.
+                # Only update tool_calls, structured_output, and status — do NOT touch context.
                 # context is managed exclusively by _update_interview_state to prevent
                 # read-modify-write races that wipe phase=completed.
                 session.tool_calls = tool_calls
                 if structured:
                     session.structured_output = structured
+                    session.status = AgentSessionStatus.COMPLETED
                 session.updated_at = datetime.now(timezone.utc)
                 await db.commit()
 
@@ -823,6 +824,18 @@ OUTPUT (search query only):"""
             result = await db.execute(stmt)
             session = result.scalar_one_or_none()
             if session:
+                # Guard: prevent race condition where a stale interview_answer
+                # call overwrites phase=completed back to phase=interviewing.
+                existing_phase = (session.context or {}).get("interview", {}).get("phase", "")
+                if existing_phase == "completed" and state.phase != "completed":
+                    _l_guard = logging.getLogger("debug.t3")
+                    _l_guard.warning(
+                        "[DEBUG-T3] _update_interview_state: refusing to downgrade phase "
+                        "from completed to %s (regen=%s, is_sufficient=%s)",
+                        state.phase, state.regeneration_count, state.is_sufficient,
+                    )
+                    return
+
                 # Re-assign entire context dict to trigger SQLAlchemy change detection
                 session.context = {
                     **(session.context or {}),
