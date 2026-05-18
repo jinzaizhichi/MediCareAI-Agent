@@ -9,6 +9,7 @@ interface UploadItem {
 
 interface Props {
   uploads: UploadItem[];
+  failedAttempts: Map<string, number>;
   onDismiss: () => void;
 }
 
@@ -22,12 +23,18 @@ const fadeInUp = keyframes`
   to { opacity: 1; transform: translateY(0); }
 `;
 
-export default function UploadStatusBanner({ uploads, onDismiss }: Props) {
+export default function UploadStatusBanner({ uploads, failedAttempts, onDismiss }: Props) {
   const [readyVisible, setReadyVisible] = useState(false);
 
   const hasParsing = uploads.some((u) => u.status === 'parsing');
   const completedCount = uploads.filter((u) => u.status === 'completed').length;
+  const failedUploads = uploads.filter((u) => u.status === 'failed');
+  const hasFailures = failedUploads.length > 0;
   const allDone = uploads.length > 0 && uploads.every((u) => u.status !== 'parsing');
+
+  const persistentFailures = failedUploads.filter(
+    (u) => (failedAttempts.get(u.fileName) || 0) >= 2
+  );
 
   useEffect(() => {
     if (allDone && uploads.length > 0) {
@@ -48,7 +55,42 @@ export default function UploadStatusBanner({ uploads, onDismiss }: Props) {
 
   if (uploads.length === 0 && !readyVisible) return null;
 
-  if (readyVisible && allDone) {
+  // State D: persistent failure — same file failed 2+ times
+  if (persistentFailures.length > 0) {
+    return (
+      <Paper
+        elevation={0}
+        sx={{
+          mx: 2, mb: 1.5, p: 2, borderRadius: 3,
+          background: 'linear-gradient(135deg, #FFEBEE 0%, #FCE4EC 100%)',
+          border: '1px solid #EF9A9A',
+          animation: `${fadeInUp} 0.35s ease-out`,
+        }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
+          <Typography sx={{ fontSize: 22, lineHeight: 1 }}>🚨</Typography>
+          <Box sx={{ flex: 1 }}>
+            <Typography variant="body2" sx={{ color: '#B71C1C', fontWeight: 600, mb: 0.5 }}>
+              报告持续解析失败
+            </Typography>
+            <Typography variant="caption" sx={{ color: '#C62828' }}>
+              AI 服务可能异常。请立即携带原始报告就医，由医生直接解读。
+            </Typography>
+          </Box>
+          <Button
+            size="small"
+            onClick={() => { setReadyVisible(false); onDismiss(); }}
+            sx={{ minWidth: 56, fontSize: 12, color: '#B71C1C', textTransform: 'none', whiteSpace: 'nowrap' }}
+          >
+            我知道了
+          </Button>
+        </Box>
+      </Paper>
+    );
+  }
+
+  // State C: ready — all reports parsed, no failures
+  if (readyVisible && allDone && !hasFailures) {
     return (
       <Paper
         elevation={0}
@@ -81,6 +123,40 @@ export default function UploadStatusBanner({ uploads, onDismiss }: Props) {
     );
   }
 
+  // State C-partial: all done but some failures
+  if (allDone && hasFailures && !hasParsing) {
+    return (
+      <Paper
+        elevation={0}
+        sx={{
+          mx: 2, mb: 1.5, p: 2, borderRadius: 3,
+          background: 'linear-gradient(135deg, #FFF3E0 0%, #FBE9E7 100%)',
+          border: '1px solid #FFAB91',
+        }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
+          <Typography sx={{ fontSize: 22, lineHeight: 1 }}>⚠️</Typography>
+          <Box sx={{ flex: 1 }}>
+            <Typography variant="body2" sx={{ color: '#BF360C', fontWeight: 600, mb: 0.3 }}>
+              {completedCount} 份成功，{failedUploads.length} 份失败
+            </Typography>
+            <Typography variant="caption" sx={{ color: '#E65100' }}>
+              请使用下方 📎 按钮重新上传失败的报告后再提问
+            </Typography>
+          </Box>
+          <Button
+            size="small"
+            onClick={() => { setReadyVisible(false); onDismiss(); }}
+            sx={{ minWidth: 48, fontSize: 12, color: '#BF360C', textTransform: 'none', whiteSpace: 'nowrap' }}
+          >
+            好的
+          </Button>
+        </Box>
+      </Paper>
+    );
+  }
+
+  // State B: parsing in progress
   if (hasParsing) {
     const progress = uploads.length > 0 ? (completedCount / uploads.length) * 100 : 0;
     return (
@@ -141,6 +217,7 @@ export default function UploadStatusBanner({ uploads, onDismiss }: Props) {
     );
   }
 
+  // State A: idle — subtle reminder
   return (
     <Paper
       elevation={0}

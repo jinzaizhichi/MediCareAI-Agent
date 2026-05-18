@@ -61,6 +61,7 @@ export default function ChatPage() {
   const pendingSessionRef = useRef<{ sessionId: string; questionId: string } | null>(null);
   const [activeUploads, setActiveUploads] = useState<UploadItem[]>([]);
   const uploadBannerDismissed = useRef(false);
+  const failedFileAttempts = useRef<Map<string, number>>(new Map());
 
   // 初始化：检查认证状态，未登录时自动创建访客 session
   useEffect(() => {
@@ -133,6 +134,7 @@ export default function ChatPage() {
     setAnsweredIds(new Set());
     setActiveUploads([]);
     uploadBannerDismissed.current = false;
+    failedFileAttempts.current = new Map();
     setMessages([
       {
         id: generateId(),
@@ -739,6 +741,8 @@ export default function ChatPage() {
               }
             } else if (result.status === 'failed') {
               clearInterval(poll);
+              const prevFails = failedFileAttempts.current.get(file.name) || 0;
+              failedFileAttempts.current.set(file.name, prevFails + 1);
               setActiveUploads((prev) =>
                 prev.map((u) => (u.fileId === uploadId ? { ...u, status: 'failed' } : u))
               );
@@ -870,6 +874,7 @@ export default function ChatPage() {
           {chatMode === 'diagnosed' && !uploadBannerDismissed.current && (
             <UploadStatusBanner
               uploads={activeUploads}
+              failedAttempts={failedFileAttempts.current}
               onDismiss={() => {
                 setActiveUploads([]);
                 uploadBannerDismissed.current = true;

@@ -1324,6 +1324,12 @@ async def chat_session(
                     full_response += chunk
                     yield f"event: text\ndata: {json.dumps({'text': chunk})}\n\n"
 
+            if not full_response:
+                child.status = AgentSessionStatus.FAILED
+                await db.commit()
+                yield f"event: error\ndata: {json.dumps({'error': 'AI 服务暂时繁忙，无法生成回复。请稍后重试。如急需解读报告，建议立即携带原始报告就医，由医生直接解读。'})}\n\n"
+                return
+
             child.context = {
                 **(child.context or {}),
                 "assistant_response": full_response,
