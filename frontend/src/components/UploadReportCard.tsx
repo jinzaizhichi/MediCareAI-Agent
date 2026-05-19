@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { Box, Typography, Paper, keyframes, Button } from '@mui/material';
+import { Box, Typography, Paper, keyframes } from '@mui/material';
 import type { LabReportResult } from '../types/agent';
 import LabReportCard from './LabReportCard';
 import { uploadTokens } from '../theme/uploadTokens';
@@ -17,7 +16,6 @@ const pulse = keyframes`
 `;
 
 export default function UploadReportCard({ fileName, status, report, error }: Props) {
-  const [expanded, setExpanded] = useState(false);
 
   if (status === 'parsing') {
     return (
@@ -63,27 +61,15 @@ export default function UploadReportCard({ fileName, status, report, error }: Pr
           overflow: 'hidden',
         }}
       >
-        <Box
-          sx={{
-            p: 1.5, display: 'flex', alignItems: 'center', gap: 1,
-            cursor: report ? 'pointer' : 'default',
-            '&:hover': report ? { opacity: 0.9 } : {},
-          }}
-          onClick={() => report && setExpanded(!expanded)}
-        >
+        <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
           <Typography sx={{ fontSize: 14 }}>📄</Typography>
           <Typography variant="body2" sx={{ flex: 1 }}>
             {fileName}
           </Typography>
           <Typography sx={{ fontSize: 14 }}>✅</Typography>
           <Typography variant="caption" sx={{ color: '#2E7D32' }}>解析完成</Typography>
-          {report && (
-            <Typography variant="caption" sx={{ color: '#388E3C' }}>
-              {expanded ? '收起 ▲' : '展开 ▼'}
-            </Typography>
-          )}
         </Box>
-        {report && expanded && (
+        {report && (
           <Box sx={{ px: 1, pb: 1 }}>
             <LabReportCard report={report} />
           </Box>
