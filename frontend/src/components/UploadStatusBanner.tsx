@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Box, Typography, Button, LinearProgress, Paper, keyframes, IconButton } from '@mui/material';
+import { uploadTokens } from '../theme/uploadTokens';
 
 interface UploadItem {
   fileId: string;
@@ -10,6 +11,7 @@ interface UploadItem {
 interface Props {
   uploads: UploadItem[];
   failedAttempts: Map<string, number>;
+  mode: 'consulting' | 'diagnosed';
   onDismiss: () => void;
 }
 
@@ -23,7 +25,7 @@ const fadeInUp = keyframes`
   to { opacity: 1; transform: translateY(0); }
 `;
 
-export default function UploadStatusBanner({ uploads, failedAttempts, onDismiss }: Props) {
+export default function UploadStatusBanner({ uploads, failedAttempts, mode, onDismiss }: Props) {
   const [readyVisible, setReadyVisible] = useState(false);
 
   const hasParsing = uploads.some((u) => u.status === 'parsing');
@@ -42,7 +44,7 @@ export default function UploadStatusBanner({ uploads, failedAttempts, onDismiss 
       const timer = setTimeout(() => {
         setReadyVisible(false);
         onDismiss();
-      }, 5000);
+      }, mode === 'diagnosed' ? 5000 : 3000);
       return () => clearTimeout(timer);
     }
   }, [allDone, uploads.length, onDismiss]);
@@ -217,13 +219,15 @@ export default function UploadStatusBanner({ uploads, failedAttempts, onDismiss 
     );
   }
 
-  // State A: idle — subtle reminder
+  // State A: idle — subtle reminder (diagnosed mode only)
+  if (mode !== 'diagnosed') return null;
+
   return (
     <Paper
       elevation={0}
       sx={{
-        mx: 2, mb: 1.5, p: 1.5, borderRadius: 3,
-        background: '#F3F8FD', border: '1px solid #BBDEFB',
+        mx: 2, mb: 1.5, p: 1.5, borderRadius: `${uploadTokens.radius}px`,
+        background: uploadTokens.idle.bg, border: `1px solid ${uploadTokens.idle.border}`,
       }}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>

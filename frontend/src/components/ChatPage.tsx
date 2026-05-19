@@ -679,12 +679,10 @@ export default function ChatPage() {
     async (file: File) => {
       const uploadId = generateId();
 
-      if (chatMode === 'diagnosed') {
-        setActiveUploads((prev) => [
-          ...prev,
-          { fileId: uploadId, fileName: file.name, status: 'parsing' },
-        ]);
-      }
+      setActiveUploads((prev) => [
+        ...prev,
+        { fileId: uploadId, fileName: file.name, status: 'parsing' },
+      ]);
 
       setMessages((prev) => [
         ...prev,
@@ -871,10 +869,11 @@ export default function ChatPage() {
         )}
 
         <Box sx={{ p: 2, borderTop: '1px solid #F5E6D3', bgcolor: 'background.paper' }}>
-          {chatMode === 'diagnosed' && !uploadBannerDismissed.current && (
+          {(activeUploads.length > 0 || (chatMode === 'diagnosed' && !uploadBannerDismissed.current)) && (
             <UploadStatusBanner
               uploads={activeUploads}
               failedAttempts={failedFileAttempts.current}
+              mode={chatMode === 'diagnosed' ? 'diagnosed' : 'consulting'}
               onDismiss={() => {
                 setActiveUploads([]);
                 uploadBannerDismissed.current = true;
