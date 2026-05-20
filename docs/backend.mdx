@@ -1,0 +1,177 @@
+---
+title: 后端参考 Backend Reference
+lang: zh-CN
+---
+
+# 🔧 后端参考
+
+> 关键端点、Service 层、模型的当前实现状态
+
+---
+
+## 1. API 端点
+
+### 核心诊断流程
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/v1/agents/route/stream` | GET | 主诉入口 → MasterAgent 意图分类 → 流式响应 |
+| `/api/v1/agents/route/stream/continue` | POST | 继续问诊（回答卡片）→ decide_next → 流式响应 |
+| `/api/v1/agents/sessions/{id}/chat` | POST | **诊断后对话**（方案 C）→ SSE 流式响应 |
+| `/api/v1/agents/sessions/{id}/lab-reports` | POST | 存储解析完成的 lab 报告 |
+
+### 其他端点
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/v1/auth/*` | POST | 认证（登录/注册/刷新） |
+| `/api/v1/documents/upload` | POST | 文档/图片上传 + OCR 解析 |
+| `/api/v1/documents/{id}/result` | GET | 轮询解析结果 |
+| `/api/v1/medical-cases/*` | CRUD | 病例管理 |
+| `/api/v1/admin/*` | CRUD | 管理后台 |
+| `/api/v1/health` | GET | 健康检查 |
+
+---
+
+## 2. Chat 端点详情
+
+### POST /sessions/{id}/chat
+
+文件: `backend/app/api/v1/agents.py`
+
+```python
+class ChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=2000)
+    patient_history: str | None = Field(None, max_length=5000)
+```
+
+**守卫**:
+1. Session 存在性检查 (404)
+2. `context.interview.phase == "completed"` 检查 (400 + `[CHAT-400]` 日志)
+3. 空响应检测 → `FAILED` 状态 + error 事件
+
+**LLM 调用**: `llm.chat()` 非流式 + `_chunk_text()` SSE 分块
+
+**`_build_chat_context` 上下文构建**:
+- `parent.structured_output` (诊断摘要)
+- `parent.context.lab_reports` (检查报告指标)
+- `parent.context.interview.collected_info` (病史)
+- sibling CONVERSATION sessions (历史对话)
+- historical MedicalCase (注册用户历史病例)
+
+---
+
+## 3. Service 层
+
+### DiagnosisAgent (`services/agents.py`)
+
+| 方法 | 说明 |
+|------|------|
+| `interview()` | 初始化 InterviewState，创建 session |
+| `interview_answer()` | 处理卡片答案 → decide_next → 持久化 |
+| `run_full_diagnosis_workflow()` | 完整诊断流程（搜索 + 结构化报告） |
+| `_update_interview_state()` | 持久化 interview state（**含相位降级守卫**） |
+| `_update_session()` | 持久化 structured_output + **status=COMPLETED** |
+
+### InterviewOrchestrator (`services/orchestrator.py`)
+
+| 方法 | 说明 |
+|------|------|
+| `decide_next()` | 核心决策引擎：三层去重 → 自然端点判断 |
+| Track1Agent | 病史采集（23 临床维度） |
+| Track2Agent | 搜索驱动（SearXNG + RAG） |
+
+### LLMService (`services/llm.py`)
+
+| 方法 | 说明 |
+|------|------|
+| `chat()` | 非流式调用（interview 路径 + **chat 端点**） |
+| `chat_stream()` | 流式调用（当前未使用，kimi-k2.6 挂死） |
+| `chat_with_tools()` | 带 function calling |
+
+---
+
+## 4. 模型
+
+### AgentSession (`models/agent.py`)
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | UUID | PK |
+| `session_type` | DIAGNOSIS/CONVERSATION/... | 会话类型 |
+| `status` | ACTIVE/COMPLETED/FAILED/... | 状态 |
+| `parent_session_id` | FK→self | 会话层级（方案 B） |
+| `structured_output` | JSONB | 诊断报告 |
+| `context` | JSONB | interview + lab_reports + _frontend_sid |
+| `children` / `parent` | relationship | 自引用 |
+
+### MedicalCase (`models/medical_case.py`)
+
+方案 C 分层模型:
+
+| 字段 | 说明 |
+|------|------|
+| `source_session_id` | FK→AgentSession（临床数据权威来源） |
+| `chief_complaint` | 主诉（冗余） |
+| `ai_diagnosis_summary` | AI 诊断摘要（冗余） |
+| `severity` | 严重程度（冗余） |
+| `is_emergency` | 是否紧急（冗余） |
+| `status` | PENDING_REVIEW→IN_PROGRESS→AWAITING_PATIENT→RESOLVED→ARCHIVED |
+
+### InterviewState (`models/interview.py`)
+
+临床问诊状态机，核心字段:
+
+| 字段 | 说明 |
+|------|------|
+| `phase` | interviewing / completed |
+| `regeneration_count` | 再生次数 |
+| `collected_info` | 已收集的临床信息 |
+| `lab_reports` | 关联的 lab 报告 |
+| `_frontend_sid` | 前端 session ID（bridge key 归一化源） |
+
+---
+
+## 5. Store Lab Reports — Bridge 归一化
+
+`backend/app/api/v1/agents.py` `store_lab_reports`:
+
+```python
+# Bridge key 归一化: UUID → _frontend_sid
+bridge_key = session_id
+try:
+    sid = uuid.UUID(session_id)
+    _s = await db.get(AgentSession, sid)
+    fsid = (_s.context or {}).get("_frontend_sid")
+    if fsid:
+        bridge_key = fsid  # 统一用前端 ID
+except ValueError:
+    pass
+
+prev = _session_lab_bridge.get(bridge_key, [])
+prev.extend(reports)
+_session_lab_bridge[bridge_key] = prev
+
+await _update_interview_session_lab_data(db, session_id, prev)
+```
+
+`_update_interview_session_lab_data` 双匹配策略:
+- Strategy 1: UUID PK 直接匹配
+- Strategy 2: `_frontend_sid` 匹配（不限 status）
+
+---
+
+## 6. 诊断日志标签
+
+| 标签 | Logger | 说明 |
+|------|--------|------|
+| `[CHAT-CTX]` | chat.context | context 各段大小 |
+| `[CHAT-LLM]` | chat.llm | prompt 大小 + 估算 token |
+| `[CHAT-OK]` | chat.llm | 正常响应长度 |
+| `[CHAT-EMPTY]` | chat.llm | 空响应警告 |
+| `[CHAT-400]` | chat | phase 检查失败 |
+| `[LLM_PRE]` / `[LLM_CHAT]` | app.services.llm | 非流式 LLM 调用 |
+| `[LLM_STREAM]` / `[LLM_STREAM_DONE]` | app.services.llm | 流式 LLM 调用 |
+| `[DEBUG-T3]` | debug.t3 | Track3 lab 数据流 |
+| `[DEBUG-DIAG]` | orchestator | decide_next 决策 |
+| `[DEBUG-CONT]` | debug.continue | continue 请求 |

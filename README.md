@@ -70,7 +70,9 @@ pytest -q
 
 ## 📝 Architecture
 
-See [`PROPOSAL.md`](./PROPOSAL.md) for the full architecture proposal (v1.0.0).
+See [`docs/`](./docs/) for the full documentation set (architecture, backend, frontend, database, deployment, todos).
+
+The original architecture proposal is at [`docs/PROPOSAL.mdx`](./docs/PROPOSAL.mdx) (v1.0.0, superseded by current implementation).
 
 ## 📝 License
 

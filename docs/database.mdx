@@ -1,0 +1,182 @@
+---
+title: 数据库 Database Schema
+lang: zh-CN
+---
+
+# 🗄️ 数据库 Schema
+
+> PostgreSQL 17 + pgvector
+
+---
+
+## 1. agent_sessions
+
+核心会话表，实现 Agent Memory Layer。
+
+```sql
+CREATE TABLE agent_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    guest_session_id UUID REFERENCES guest_sessions(id) ON DELETE SET NULL,
+
+    session_type VARCHAR NOT NULL,  -- DIAGNOSIS, CONVERSATION, PLANNING, MONITORING, CONSULTATION
+    status VARCHAR NOT NULL,        -- ACTIVE, COMPLETED, FAILED, ESCALATED, TIMEOUT
+    intent VARCHAR(100),
+
+    context JSONB,                  -- { interview, lab_reports, _frontend_sid }
+    structured_output JSONB,        -- 诊断报告 (DiagnosisReport)
+    tool_calls JSONB,
+
+    parent_session_id UUID REFERENCES agent_sessions(id) ON DELETE SET NULL,  -- 方案 B 层级
+
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now(),
+    completed_at TIMESTAMPTZ
+);
+```
+
+### context JSONB 结构
+
+```json
+{
+  "interview": {
+    "phase": "completed",
+    "chief_complaint": "...",
+    "collected_info": { "hpi_onset": "...", ... },
+    "red_flags_detected": ["..."],
+    "regeneration_count": 1
+  },
+  "lab_reports": [
+    {
+      "indicators": [
+        { "indicator_name": "白细胞", "value": "7.4", "abnormal": false, ... }
+      ]
+    }
+  ],
+  "_frontend_sid": "mpaxhxf32t94tk"
+}
+```
+
+### 关键索引
+
+- `ix_agent_sessions_user_id` ON (user_id)
+- 自引用 FK: `parent_session_id` → `id`
+
+---
+
+## 2. medical_cases
+
+方案 C 分层模型。
+
+```sql
+CREATE TABLE medical_cases (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    patient_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    assigned_doctor_id UUID REFERENCES users(id) ON DELETE SET NULL,
+
+    -- 引用层: 临床数据权威来源
+    source_session_id UUID REFERENCES agent_sessions(id) ON DELETE SET NULL,
+
+    -- 冗余层: 诊断完成时一次性写入
+    chief_complaint TEXT,
+    ai_diagnosis_summary TEXT,
+    severity VARCHAR,
+    is_emergency BOOLEAN DEFAULT false,
+
+    -- 管理层
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    status VARCHAR NOT NULL,  -- PENDING_REVIEW, IN_PROGRESS, AWAITING_PATIENT, RESOLVED, ARCHIVED
+
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now(),
+    closed_at TIMESTAMPTZ
+);
+```
+
+### CaseStatus 状态机
+
+```
+PENDING_REVIEW → IN_PROGRESS → AWAITING_PATIENT → RESOLVED → ARCHIVED
+```
+
+---
+
+## 3. medical_documents
+
+```sql
+CREATE TABLE medical_documents (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    medical_case_id UUID NOT NULL REFERENCES medical_cases(id) ON DELETE CASCADE,
+    type VARCHAR NOT NULL,  -- REPORT, PRESCRIPTION, IMAGE, LAB_RESULT, ...
+    file_path TEXT,
+    parsed_content JSONB,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+## 4. users
+
+```sql
+CREATE TABLE users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email VARCHAR UNIQUE NOT NULL,
+    hashed_password VARCHAR NOT NULL,
+    full_name VARCHAR,
+    role VARCHAR NOT NULL,  -- PATIENT, DOCTOR, ADMIN
+    status VARCHAR NOT NULL,  -- ACTIVE, INACTIVE, BANNED
+    password_change_required BOOLEAN DEFAULT false,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+### guest_sessions
+
+```sql
+CREATE TABLE guest_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_token VARCHAR UNIQUE NOT NULL,
+    fingerprint VARCHAR,
+    max_messages INT DEFAULT 3,
+    message_count INT DEFAULT 0,
+    expires_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+## 5. AgentSession 枚举值
+
+| 枚举 | 值 |
+|------|-----|
+| `AgentSessionType` | DIAGNOSIS, CONVERSATION, PLANNING, MONITORING, CONSULTATION |
+| `AgentSessionStatus` | ACTIVE, COMPLETED, FAILED, ESCALATED, TIMEOUT |
+| `CaseStatus` | PENDING_REVIEW, IN_PROGRESS, AWAITING_PATIENT, RESOLVED, ARCHIVED |
+
+---
+
+## 6. DB 连接池
+
+`backend/app/db/session.py`:
+```python
+async_engine = create_async_engine(
+    settings.async_database_url,
+    pool_pre_ping=True,
+    pool_size=10,
+    max_overflow=20,
+)
+```
+
+---
+
+## 7. 迁移
+
+Alembic 迁移文件位于 `backend/app/db/migrations/versions/`。
+
+最新迁移:
+- `b1c2d3e4f5a6`: parent_session_id 字段（方案 B）
+- `f919ea76667a`: embedding JSON 到 chunks
+- `280f5fca0584`: agent_sessions 初始表

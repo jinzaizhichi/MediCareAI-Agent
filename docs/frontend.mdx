@@ -1,0 +1,148 @@
+---
+title: 前端参考 Frontend Reference
+lang: zh-CN
+---
+
+# 🖥️ 前端参考
+
+> React 19 + TypeScript + Vite + MUI v9
+
+---
+
+## 1. 组件树
+
+```
+ChatPage (主页面)
+ ├─ Sidebar                   会话列表
+ ├─ ChatMessage               消息渲染
+ │    ├─ UploadReportCard     上传报告卡片 (🆕)
+ │    │    └─ LabReportCard   化验单详情
+ │    ├─ DiagnosisCard        诊断报告卡片
+ │    ├─ LabReportCard        化验单卡片
+ │    ├─ AgentWorkflow        工作流步骤
+ │    └─ ReactMarkdown        Markdown 渲染
+ ├─ PendingCardsPanel         consulting 模式问诊卡
+ ├─ FullScreenReport          全屏诊断报告
+ ├─ UploadStatusBanner        上传状态横幅
+ │    States: idle | parsing | ready | partial_failure | persistent_failure
+ └─ ChatInput                 输入框 + 文件上传按钮
+
+Admin Pages:
+ ├─ AdminLayout
+ ├─ DashboardPage            仪表盘
+ ├─ UsersPage                用户管理
+ ├─ LLMProvidersPage         LLM 提供商配置
+ ├─ KnowledgeBasePage        知识库管理
+ ├─ DoctorVerificationPage   医生认证
+ └─ ...
+```
+
+---
+
+## 2. 核心状态：chatMode
+
+```typescript
+type ChatMode = 'idle' | 'consulting' | 'diagnosed';
+
+// idle:       初始态，显示快捷回复
+// consulting: 问诊中，显示 PendingCardsPanel
+// diagnosed:  诊断完成，显示 UploadStatusBanner + ChatInput
+```
+
+**状态转换**:
+```
+idle → (发送主诉) → consulting
+consulting → (structured 事件) → diagnosed
+diagnosed → (startNewSession) → idle
+```
+
+---
+
+## 3. 上传流程
+
+### handleFileUpload (ChatPage.tsx)
+
+```
+用户选择文件
+  → uploadDocument() 上传到服务器
+  → 消息流插入 "正在解析..." (UploadReportCard parsing)
+  → activeUploads 追踪 (全模式)
+  → setInterval 轮询 getParseResult() (每 1.5s)
+       ├─ completed → setActiveUploads + store_lab_reports POST
+       └─ failed    → setActiveUploads + failedFileAttempts++
+```
+
+### store_lab_reports Session ID
+
+```typescript
+const uploadSessionId = backendSessionIdRef.current || currentSessionId;
+```
+
+### UploadStatusBanner 显示条件
+
+```typescript
+activeUploads.length > 0 || (chatMode === 'diagnosed' && !uploadBannerDismissed.current)
+```
+
+### UploadReportCard 三态
+
+| 状态 | 视觉 | 交互 |
+|------|------|------|
+| parsing | 暖金渐变 + 🔄 脉冲动画 | 纯展示 |
+| completed | 浅绿渐变 + ✅ + LabReportCard 默认展开 | 纯展示 |
+| failed | 暖橙渐变 + ❌ + 错误信息 | 纯展示 |
+
+---
+
+## 4. SSE 事件处理
+
+### streamDiagnoseContinue (interview 路径)
+
+`api/agent.ts` `streamDiagnoseContinue()`:
+- 处理: `thinking`, `tool_call`, `tool_result`, `text`, `structured`, `question`, `complete`, `error`
+- `structured` → setChatMode('diagnosed'), setReportData()
+- `complete` → set backendSessionIdRef.current
+
+### streamChat (chat 路径)
+
+`api/agent.ts` `streamChat()`:
+- POST + fetch + ReadableStream SSE 解析
+- 处理: `text`, `complete`, `error`
+- 错误显示: [TODO] 当前硬编码 "请求失败，请重试"
+
+---
+
+## 5. 样式系统
+
+### 设计 Token (`theme/uploadTokens.ts`)
+
+```typescript
+export const uploadTokens = {
+  parsing:    { gradient: 'linear-gradient(135deg, #FFF8E1, #FFF3E0)', border: '#FFE082' },
+  completed:  { gradient: 'linear-gradient(135deg, #E8F5E9, #F1F8E9)', border: '#A5D6A7' },
+  failed:     { gradient: 'linear-gradient(135deg, #FFF3E0, #FBE9E7)', border: '#FFAB91' },
+  persistent: { gradient: 'linear-gradient(135deg, #FFEBEE, #FCE4EC)', border: '#EF9A9A' },
+  idle:       { bg: '#F3F8FD', border: '#BBDEFB' },
+  radius: 12,
+};
+```
+
+### MUI Theme
+
+- `patientTheme`: 主色调 `#E8956A` (暖橙色)
+- `doctorTheme`: 医生端主题
+
+---
+
+## 6. 已实现 vs 未实现
+
+| 功能 | 状态 |
+|------|:--:|
+| ChatPage 三模式状态机 | ✅ |
+| UploadStatusBanner 5 态 | ✅ |
+| UploadReportCard 统一卡片 | ✅ |
+| cross-mode upload tracking | ✅ |
+| 医生端页面 (CaseDetail, DoctorDashboard) | [TODO] 空壳 |
+| 前端错误消息透传 | [TODO] |
+| 同类错误去重 | [TODO] |
+| SSE 解析逻辑复用 | [TODO] |

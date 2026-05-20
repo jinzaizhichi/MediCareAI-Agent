@@ -1,0 +1,160 @@
+---
+title: 系统架构 Architecture
+lang: zh-CN
+---
+
+# 🏗️ 系统架构
+
+> 当前实现状态 / Current Implementation Status
+>
+> 本文件描述**已实现**的架构。设计方案见 `PROPOSAL.md`。
+
+---
+
+## 1. 核心架构：三轨问诊 + 诊断后对话
+
+```
+用户发主诉 + 上传图片/文件
+        ↓
+  route_stream (SSE 流式入口 - 诊断管道)
+        ↓
+  MasterAgent.classify_intent → diagnosis
+        ↓
+  interview() 创建 InterviewState，加载 lab_reports
+        ↓
+  ┌──────────────┬──────────────────┬──────────────────┐
+  │ Track1       │ Track2           │ Track3           │
+  │ 病史采集      │ 搜索增强(SearXNG) │ 多模态解析        │
+  │ 23 临床维度   │ RAG + 靶向问题   │ 图片/文档→LabReport│
+  └──────┬───────┴────────┬─────────┴────────┬─────────┘
+         └──────────── all_questions ─────────┘
+                          ↓
+         三层去重（同轮互斥 / phase_key前缀 / LLM语义）
+                          ↓
+                    deduped 问诊卡
+                          ↓
+  decide_next(): dedup空 + pending空 + lab完整 → synthesize
+                          ↓ phase=completed
+  ┌─────────────────────────────────────────────────────────┐
+  │               🆕 诊断后对话管道                           │
+  │  POST /sessions/{id}/chat ← 专用端点（不走诊断管道）      │
+  │  AgentSession.parent_session_id ← 自引用层级             │
+  │  parent (DIAGNOSIS) 🔒 数据永不变                        │
+  │  children (CONVERSATION) ← 每次对话独立记录               │
+  └─────────────────────────────────────────────────────────┘
+```
+
+### 核心铁律
+
+**dedup 空 + pending 空 + lab 完整 → synthesize（唯一出口）**
+
+- `escalation` 绕过：已取消
+- `_assess_sufficiency` 判断：已取消
+- `MIN_QUESTIONS` 硬上限：已取消
+
+### 相位降级守卫
+
+`_update_interview_state` 写入前检查 DB 已有 phase。若已为 `completed` 而新 state 不是，拒绝降级并记录警告。
+
+---
+
+## 2. 数据流：Lab Reports
+
+```
+图片上传 → store_lab_reports
+              ├─ bridge key 归一化（UUID → _frontend_sid）
+              └─ bridge 累积 → _update_interview_session_lab_data (单写入者)
+                   ├─ Strategy 1: UUID PK 精确匹配
+                   └─ Strategy 2: _frontend_sid 匹配（不限 status）
+
+chat 消息 → /chat 端点
+              ├─ phase guard
+              ├─ _build_chat_context
+              │    ├─ parent.structured_output (诊断)
+              │    ├─ parent.context.lab_reports (检查报告)
+              │    ├─ parent.context.interview.collected_info (病史)
+              │    ├─ siblings (历史对话)
+              │    └─ historical cases (历史病例)
+              ├─ llm.chat() 非流式 → _chunk_text() SSE 分块
+              └─ 空响应 → FAILED 状态 + error 事件
+```
+
+---
+
+## 3. 后端文件结构
+
+```
+backend/app/
+├── main.py              # FastAPI 入口
+├── api/v1/
+│   ├── agents.py         # SSE 端点 / chat 端点 / lab-reports (核心)
+│   ├── documents.py      # 文档上传
+│   ├── auth.py           # 认证
+│   ├── doctor.py         # 医生端
+│   ├── medical_cases.py  # 病例 CRUD
+│   └── ...
+├── services/
+│   ├── agents.py         # DiagnosisAgent / MasterAgent / interview()
+│   ├── orchestrator.py   # decide_next() 核心决策引擎
+│   ├── llm.py            # LLM 调用（chat / chat_stream）
+│   └── multimodal_parser.py  # Track3 图片解析
+├── models/
+│   ├── agent.py          # AgentSession (含 parent_session_id)
+│   ├── interview.py      # InterviewState
+│   ├── medical_case.py   # MedicalCase 方案 C 分层模型
+│   └── user.py           # User / GuestSession
+└── db/
+    ├── session.py        # async_session_maker (pool_size=10)
+    └── migrations/       # Alembic 迁移
+```
+
+---
+
+## 4. 前端组件树
+
+```
+ChatPage
+ ├─ Sidebar
+ ├─ ChatMessage → UploadReportCard / DiagnosisCard / LabReportCard / AgentWorkflow
+ ├─ PendingCardsPanel (consulting 模式)
+ ├─ FullScreenReport
+ ├─ UploadStatusBanner (diagnosed + consulting)
+ │    States: idle | parsing | ready | partial_failure | persistent_failure
+ └─ ChatInput (placeholder 动态变化)
+
+Admin 端:
+ ├─ AdminLayout
+ └─ Admin Pages: Dashboard, Users, LLM Providers, Knowledge Base, ...
+```
+
+---
+
+## 5. 已实现 vs 未实现
+
+| 模块 | 状态 |
+|------|:--:|
+| DiagnosisAgent (三轨问诊) | ✅ |
+| Post-Diagnosis Chat (方案 B+C) | ✅ |
+| Lab Reports Bridge (归一化) | ✅ |
+| Upload UX (Banner + UploadReportCard) | ✅ |
+| MedicalCase 方案 C (分层模型) | ✅ |
+| DoctorAgent | [TODO] |
+| KnowledgeAgent | [TODO] |
+| PlanningAgent | [TODO] 仅有接口 |
+| MonitoringAgent | [TODO] 仅有接口 |
+| 医生端核心功能 | [TODO] |
+| MCP / GraphRAG | [TODO] |
+| Android App WebView | [TODO] |
+
+---
+
+## 6. 关键决策记录
+
+| 决策 | 时间 | 说明 |
+|------|------|------|
+| 废弃方案 A（session 复用 hack） | 05-17 | 线上 Bug 揭示根本缺陷 |
+| 采用方案 B+C（会话层级 + 专用端点） | 05-17 | AgentSession 自引用 + POST /chat |
+| MedicalCase 方案 C（分层模型） | 05-17 | 冗余字段 + source_session_id FK |
+| bridge key 归一化 | 05-18 | UUID → _frontend_sid |
+| llm.chat_stream → llm.chat | 05-18 | kimi-k2.6 流式 API 不工作 |
+| UploadReportCard 默认展开 | 05-19 | 去掉折叠交互 |

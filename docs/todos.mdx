@@ -1,0 +1,136 @@
+---
+title: 已知问题与 TODO
+lang: zh-CN
+---
+
+# 📋 已知问题与 TODO
+
+> 最后更新: 2026-05-19 | Commit: `0c8512d`
+
+---
+
+## P0：影响核心体验
+
+### 1. MasterAgent prompt 增强
+
+**文件**: `backend/app/services/agents.py`
+**状态**: [TODO]
+**说明**: 方案文档中已设计（+6 行），降低 `classify_intent` 误判。诊断后对话可能被误判为 diagnosis。
+**来源**: Session 交接 05-17 §9.1
+
+### 2. patientHistory 轻量化
+
+**文件**: `frontend/src/components/ChatPage.tsx`
+**状态**: [TODO]
+**说明**: diagnosed 模式 `handleSend` 不传全量诊断报告文本到 `/chat`。`ChatRequest.patient_history` 已定义，前端 `handleSend` 中 `patientHistory` 变量已构建但 `streamChat()` 不支持该参数。
+**来源**: Session 交接 05-17 §9.2
+
+### 3. 提取公共 `parseSSEStream()`
+
+**文件**: `frontend/src/api/agent.ts`
+**状态**: [TODO]
+**说明**: `streamDiagnoseContinue` 和 `streamChat` 重复了 ~40 行 SSE 解析逻辑（读流、buffer、split `\n\n`、parse event: / data:）。
+**来源**: Session 交接 05-17 §9.2
+
+### 4. 前端错误消息透传
+
+**文件**: `frontend/src/components/ChatPage.tsx`
+**状态**: [TODO]
+**说明**: diagnosed 模式 chat 路径的 `case 'error'` 显示硬编码「请求失败，请重试」，未使用 `event.data?.error` 中的实际错误消息（如 Fix #14 的就医建议）。
+**改动**: ~3 行
+
+### 5. 同类错误去重
+
+**文件**: `frontend/src/components/ChatPage.tsx`
+**状态**: [TODO]
+**说明**: 用户连点发送时，相同错误消息重复插入消息列表。
+
+---
+
+## P1：功能增强
+
+### 6. 医生端核心功能
+
+**文件**: `frontend/src/doctor/`
+**状态**: [TODO] 空壳页面
+**说明**: Case 列表、审核、分配。目前 `DoctorDashboard`、`DoctorCases`、`CaseDetailPage` 仅有占位内容。
+
+### 7. DoctorAgent 实现
+
+**文件**: `backend/app/services/agents.py`
+**状态**: [TODO]
+**说明**: 专科 Agent 协作。架构设计中已定义角色，未实现。
+
+### 8. KnowledgeAgent 封装
+
+**文件**: 待定
+**状态**: [TODO]
+**说明**: 知识库查询 Agent。
+
+### 9. 访客/注册 UX 优化
+
+**文件**: `frontend/src/components/GuestBanner.tsx`, `frontend/src/auth/`
+**状态**: [TODO]
+**说明**: 访客模式 3 轮限制提示、注册流程流畅度。
+
+### 10. chat 端点 GET→POST 验证
+
+**说明**: 确认 POST+fetch SSE 模式在各种场景下稳定。当前已验证基本场景。
+
+---
+
+## P2：平台能力
+
+### 11. MCP 工具协议
+
+**状态**: [TODO]
+**说明**: Model Context Protocol 集成，Agent 工具标准化。
+
+### 12. GraphRAG
+
+**状态**: [TODO]
+**说明**: 知识图谱增强检索。
+
+### 13. WebSocket 实时推送
+
+**状态**: [TODO]
+**说明**: 替代 SSE 长轮询，支持双向实时通信。
+
+### 14. Android App WebView 集成
+
+**状态**: [TODO]
+**说明**: Kotlin + JSBridge 实现。设计方案见 Obsidian `15 - 📱 Android App WebView 集成方案`。
+
+---
+
+## P3：工程健康
+
+### 15. LLM provider 降级策略
+
+**文件**: `backend/app/services/llm.py`
+**状态**: [TODO]
+**说明**: 主 provider 不可用时自动切换备选。当前仅单 provider。
+
+### 16. store_lab_reports 并发安全
+
+**文件**: `backend/app/api/v1/agents.py`
+**状态**: [TODO]
+**说明**: bridge 归一化已消除大部分竞态，极端并发下仍可考虑 Redis 锁或 SELECT FOR UPDATE。
+
+### 17. ChatInput placeholder 解析完成态
+
+**文件**: `frontend/src/components/ChatPage.tsx`
+**状态**: [TODO]
+**说明**: 当前仅 parsing 态有特殊 placeholder。ready 态可增加「报告已解读，请描述您的问题」提示。
+
+---
+
+## 建议执行顺序
+
+```
+第 1 周: P0-1 MasterAgent → P0-2 patientHistory → P0-3 parseSSEStream
+第 2 周: P0-4 错误透传 → P0-5 去重 → P1-6 医生端
+第 3 周: P1-7 DoctorAgent → P1-8 KnowledgeAgent
+第 4 周: P1-9 访客 UX → P3-15 降级策略
+后续:   P2 平台能力按需推进
+```
