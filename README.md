@@ -22,10 +22,10 @@ MediCareAI-Agent is not a chatbot. It is a **team of specialized medical agents*
 | Backend | Python 3.12 + FastAPI + SQLAlchemy 2.0 (async) |
 | Task Queue | Celery + Redis |
 | Database | PostgreSQL 17 + pgvector |
-| AI/LLM | OpenAI-compatible multi-provider (GLM / DeepSeek / Kimi / Qwen) |
+| AI/LLM | OpenAI-compatible (kimi-k2.6 / GLM / DeepSeek / Qwen) |
 | Auth | JWT + Role-based (Patient / Doctor / Admin / Guest) |
+| Frontend | React 19 + TypeScript 6 + Vite 8 + MUI 9 |
 | Deploy | Docker Compose → VPS (production) |
-| Monitor | Prometheus + Sentry |
 
 ## 🚀 Quick Start
 
@@ -68,11 +68,61 @@ pytest -q
        └──────────────────────────────────────────┘
 ```
 
-## 📝 Architecture
+## 📝 Documentation
 
-See [`docs/`](./docs/) for the full documentation set (architecture, backend, frontend, database, deployment, todos).
+Full docs in [`docs/`](./docs/):
 
-The original architecture proposal is at [`docs/PROPOSAL.mdx`](./docs/PROPOSAL.mdx) (v1.0.0, superseded by current implementation).
+| Document | Content |
+|----------|---------|
+| [`README.mdx`](./docs/README.mdx) | Index & Quick Start |
+| [`architecture.mdx`](./docs/architecture.mdx) | System Architecture (current state) |
+| [`backend.mdx`](./docs/backend.mdx) | API Endpoints, Services, Models |
+| [`frontend.mdx`](./docs/frontend.mdx) | Component Tree, State Machine |
+| [`database.mdx`](./docs/database.mdx) | Schema, Migrations |
+| [`deployment.mdx`](./docs/deployment.mdx) | Deploy Workflow, Debugging |
+| [`todos.mdx`](./docs/todos.mdx) | Known Issues & Roadmap (P0-P3) |
+
+The original architecture proposal is at [`PROPOSAL.md`](./PROPOSAL.md) (v1.0.0, historical).
+
+## 📁 Project Structure
+
+```
+MediCareAI-Agent/
+├── backend/
+│   ├── app/
+│   │   ├── api/v1/          # REST + SSE endpoints
+│   │   ├── services/         # Agent logic (DiagnosisAgent, LLM)
+│   │   ├── models/           # SQLAlchemy models
+│   │   └── db/               # Session + Migrations
+│   ├── tests/
+│   └── pyproject.toml
+├── frontend/
+│   ├── src/
+│   │   ├── components/       # ChatPage, UploadReportCard, etc.
+│   │   ├── api/              # API client + SSE handlers
+│   │   ├── theme/            # Design tokens
+│   │   └── types/            # TypeScript types
+│   └── package.json
+├── docs/                     # Project documentation (.mdx)
+├── nginx/                    # Reverse proxy config
+├── searxng/                  # Search engine config
+├── docker-compose.yml        # Production stack
+├── docker-compose.prod.yml
+└── Dockerfile
+```
+
+## 🎯 Current Status
+
+| Feature | Status |
+|---------|:--:|
+| Three-track diagnosis (Track1+2+3) | ✅ |
+| Post-diagnosis chat (Plan B+C) | ✅ |
+| Lab report bridge (normalized) | ✅ |
+| Upload UX (Banner + UploadReportCard) | ✅ |
+| MedicalCase (Plan C layered model) | ✅ |
+| Doctor Dashboard | [TODO] |
+| DoctorAgent / KnowledgeAgent | [TODO] |
+| MCP / GraphRAG / Android App | [TODO] |
 
 ## 📝 License
 

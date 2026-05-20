@@ -1,5 +1,13 @@
 # MediCareAI → MediCareAI-Agent：进入 Agent 时代的升级方案
 
+> **⚠️ 历史文档 | Historical Document**
+>
+> 本文撰写于 2026-04-27，描述项目初始架构**提案**（v1.0.0）。
+> 当前实现已与此提案有显著差异。
+>
+> **当前架构文档**: [`docs/architecture.mdx`](docs/architecture.mdx)
+> **完整文档**: [`docs/`](docs/)
+>
 > **版本**: v1.0.0 | **作者**: Stellara (for 苏业钦) | **日期**: 2026-04-27
 >
 > 基于对 `/home/houge/MediCareAI` 项目的完整代码审计与架构分析
