@@ -18,13 +18,13 @@ lang: zh-CN
 | `/api/v1/agents/route/stream` | GET | 主诉入口 → MasterAgent 意图分类 → 流式响应 |
 | `/api/v1/agents/route/stream/continue` | POST | 继续问诊（回答卡片）→ decide_next → 流式响应 |
 | `/api/v1/agents/sessions/{id}/chat` | POST | **诊断后对话**（方案 C）→ SSE 流式响应 |
-| `/api/v1/agents/sessions/{id}/lab-reports` | POST | 存储解析完成的 lab 报告 |
+| `/api/v1/agents/sessions/{id}/lab-reports` | POST | 存储解析完成的化验单 |
 
 ### 其他端点
 
 | 端点 | 方法 | 说明 |
 |------|------|------|
-| `/api/v1/auth/*` | POST | 认证（登录/注册/刷新） |
+| `/api/v1/auth/*` | POST | 认证（登录/注册/刷新令牌） |
 | `/api/v1/documents/upload` | POST | 文档/图片上传 + OCR 解析 |
 | `/api/v1/documents/{id}/result` | GET | 轮询解析结果 |
 | `/api/v1/medical-cases/*` | CRUD | 病例管理 |
@@ -33,7 +33,7 @@ lang: zh-CN
 
 ---
 
-## 2. Chat 端点详情
+## 2. Chat 端点详解
 
 ### POST /sessions/{id}/chat
 
@@ -42,7 +42,7 @@ lang: zh-CN
 ```python
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=2000)
-    patient_history: str | None = Field(None, max_length=5000)
+    patient_history: str | None = Field(None, max_length=5000)  # [TODO] 前端未使用
 ```
 
 **守卫**:
@@ -50,14 +50,14 @@ class ChatRequest(BaseModel):
 2. `context.interview.phase == "completed"` 检查 (400 + `[CHAT-400]` 日志)
 3. 空响应检测 → `FAILED` 状态 + error 事件
 
-**LLM 调用**: `llm.chat()` 非流式 + `_chunk_text()` SSE 分块
+**LLM 调用**: `llm.chat()` 非流式 + `_chunk_text()` SSE 分块。注：原使用 `llm.chat_stream()` 流式，但 kimi-k2.6 流式 API 挂死，改为非流式。
 
 **`_build_chat_context` 上下文构建**:
-- `parent.structured_output` (诊断摘要)
-- `parent.context.lab_reports` (检查报告指标)
-- `parent.context.interview.collected_info` (病史)
-- sibling CONVERSATION sessions (历史对话)
-- historical MedicalCase (注册用户历史病例)
+- `parent.structured_output` — 诊断摘要
+- `parent.context.lab_reports` — 检查报告指标
+- `parent.context.interview.collected_info` — 病史
+- sibling CONVERSATION sessions — 历史对话
+- historical MedicalCase — 注册用户历史病例
 
 ---
 
@@ -97,7 +97,7 @@ class ChatRequest(BaseModel):
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `id` | UUID | PK |
+| `id` | UUID | 主键 |
 | `session_type` | DIAGNOSIS/CONVERSATION/... | 会话类型 |
 | `status` | ACTIVE/COMPLETED/FAILED/... | 状态 |
 | `parent_session_id` | FK→self | 会话层级（方案 B） |
@@ -112,27 +112,15 @@ class ChatRequest(BaseModel):
 | 字段 | 说明 |
 |------|------|
 | `source_session_id` | FK→AgentSession（临床数据权威来源） |
-| `chief_complaint` | 主诉（冗余） |
+| `chief_complaint` | 主诉（冗余，一次性写入） |
 | `ai_diagnosis_summary` | AI 诊断摘要（冗余） |
 | `severity` | 严重程度（冗余） |
 | `is_emergency` | 是否紧急（冗余） |
 | `status` | PENDING_REVIEW→IN_PROGRESS→AWAITING_PATIENT→RESOLVED→ARCHIVED |
 
-### InterviewState (`models/interview.py`)
-
-临床问诊状态机，核心字段:
-
-| 字段 | 说明 |
-|------|------|
-| `phase` | interviewing / completed |
-| `regeneration_count` | 再生次数 |
-| `collected_info` | 已收集的临床信息 |
-| `lab_reports` | 关联的 lab 报告 |
-| `_frontend_sid` | 前端 session ID（bridge key 归一化源） |
-
 ---
 
-## 5. Store Lab Reports — Bridge 归一化
+## 5. 化验单 Bridge 归一化
 
 `backend/app/api/v1/agents.py` `store_lab_reports`:
 
@@ -144,7 +132,7 @@ try:
     _s = await db.get(AgentSession, sid)
     fsid = (_s.context or {}).get("_frontend_sid")
     if fsid:
-        bridge_key = fsid  # 统一用前端 ID
+        bridge_key = fsid  # 统一用前端 ID 做 key
 except ValueError:
     pass
 
@@ -172,6 +160,6 @@ await _update_interview_session_lab_data(db, session_id, prev)
 | `[CHAT-400]` | chat | phase 检查失败 |
 | `[LLM_PRE]` / `[LLM_CHAT]` | app.services.llm | 非流式 LLM 调用 |
 | `[LLM_STREAM]` / `[LLM_STREAM_DONE]` | app.services.llm | 流式 LLM 调用 |
-| `[DEBUG-T3]` | debug.t3 | Track3 lab 数据流 |
-| `[DEBUG-DIAG]` | orchestator | decide_next 决策 |
+| `[DEBUG-T3]` | debug.t3 | Track3 化验单数据流 |
+| `[DEBUG-DIAG]` | orchestrator | decide_next 决策 |
 | `[DEBUG-CONT]` | debug.continue | continue 请求 |

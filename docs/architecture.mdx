@@ -5,7 +5,7 @@ lang: zh-CN
 
 # 🏗️ 系统架构
 
-> 当前实现状态 / Current Implementation Status
+> 当前实现状态 | Current Implementation Status
 >
 > 本文件描述**已实现**的架构。设计方案见 `PROPOSAL.md`。
 
@@ -25,7 +25,7 @@ lang: zh-CN
   ┌──────────────┬──────────────────┬──────────────────┐
   │ Track1       │ Track2           │ Track3           │
   │ 病史采集      │ 搜索增强(SearXNG) │ 多模态解析        │
-  │ 23 临床维度   │ RAG + 靶向问题   │ 图片/文档→LabReport│
+  │ 23 临床维度   │ RAG + 靶向问题    │ 图片/文档→LabReport│
   └──────┬───────┴────────┬─────────┴────────┬─────────┘
          └──────────── all_questions ─────────┘
                           ↓
@@ -114,17 +114,23 @@ backend/app/
 
 ```
 ChatPage
- ├─ Sidebar
- ├─ ChatMessage → UploadReportCard / DiagnosisCard / LabReportCard / AgentWorkflow
- ├─ PendingCardsPanel (consulting 模式)
- ├─ FullScreenReport
- ├─ UploadStatusBanner (diagnosed + consulting)
- │    States: idle | parsing | ready | partial_failure | persistent_failure
- └─ ChatInput (placeholder 动态变化)
+ ├─ Sidebar                      会话列表
+ ├─ ChatMessage                  消息渲染
+ │    ├─ UploadReportCard        上传报告卡片 (🆕)
+ │    │    └─ LabReportCard      化验单详情
+ │    ├─ DiagnosisCard           诊断报告卡片
+ │    ├─ LabReportCard           化验单卡片
+ │    ├─ AgentWorkflow           工作流步骤
+ │    └─ ReactMarkdown           Markdown 渲染
+ ├─ PendingCardsPanel            consulting 模式问诊卡
+ ├─ FullScreenReport             全屏诊断报告
+ ├─ UploadStatusBanner           上传状态横幅
+ │    状态: idle | parsing | ready | partial_failure | persistent_failure
+ └─ ChatInput                    输入框 + 文件上传按钮
 
-Admin 端:
+管理员端:
  ├─ AdminLayout
- └─ Admin Pages: Dashboard, Users, LLM Providers, Knowledge Base, ...
+ └─ 各管理页面: Dashboard, Users, LLM Providers, Knowledge Base, ...
 ```
 
 ---
@@ -134,9 +140,9 @@ Admin 端:
 | 模块 | 状态 |
 |------|:--:|
 | DiagnosisAgent (三轨问诊) | ✅ |
-| Post-Diagnosis Chat (方案 B+C) | ✅ |
-| Lab Reports Bridge (归一化) | ✅ |
-| Upload UX (Banner + UploadReportCard) | ✅ |
+| 诊断后对话 (方案 B+C) | ✅ |
+| 化验单 Bridge (归一化) | ✅ |
+| 上传 UX (Banner + UploadReportCard) | ✅ |
 | MedicalCase 方案 C (分层模型) | ✅ |
 | DoctorAgent | [TODO] |
 | KnowledgeAgent | [TODO] |
@@ -155,6 +161,6 @@ Admin 端:
 | 废弃方案 A（session 复用 hack） | 05-17 | 线上 Bug 揭示根本缺陷 |
 | 采用方案 B+C（会话层级 + 专用端点） | 05-17 | AgentSession 自引用 + POST /chat |
 | MedicalCase 方案 C（分层模型） | 05-17 | 冗余字段 + source_session_id FK |
-| bridge key 归一化 | 05-18 | UUID → _frontend_sid |
+| bridge key 归一化 | 05-18 | UUID → _frontend_sid，单 key 消除分裂 |
 | llm.chat_stream → llm.chat | 05-18 | kimi-k2.6 流式 API 不工作 |
 | UploadReportCard 默认展开 | 05-19 | 去掉折叠交互 |

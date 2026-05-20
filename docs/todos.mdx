@@ -5,7 +5,7 @@ lang: zh-CN
 
 # 📋 已知问题与 TODO
 
-> 最后更新: 2026-05-19 | Commit: `0c8512d`
+> 最后更新: 2026-05-19 | Commit: `3bcc3e2`
 
 ---
 
@@ -15,29 +15,29 @@ lang: zh-CN
 
 **文件**: `backend/app/services/agents.py`
 **状态**: [TODO]
-**说明**: 方案文档中已设计（+6 行），降低 `classify_intent` 误判。诊断后对话可能被误判为 diagnosis。
+**说明**: 方案文档中已设计（+6 行），降低 `classify_intent` 误判。诊断后对话可能被误判为 diagnosis 意图。
 **来源**: Session 交接 05-17 §9.1
 
 ### 2. patientHistory 轻量化
 
 **文件**: `frontend/src/components/ChatPage.tsx`
 **状态**: [TODO]
-**说明**: diagnosed 模式 `handleSend` 不传全量诊断报告文本到 `/chat`。`ChatRequest.patient_history` 已定义，前端 `handleSend` 中 `patientHistory` 变量已构建但 `streamChat()` 不支持该参数。
+**说明**: diagnosed 模式 `handleSend` 不传全量诊断报告文本到 `/chat`。`ChatRequest.patient_history` 已在后端定义，前端 `handleSend` 中 `patientHistory` 变量已构建但 `streamChat()` 不支持该参数。
 **来源**: Session 交接 05-17 §9.2
 
 ### 3. 提取公共 `parseSSEStream()`
 
 **文件**: `frontend/src/api/agent.ts`
 **状态**: [TODO]
-**说明**: `streamDiagnoseContinue` 和 `streamChat` 重复了 ~40 行 SSE 解析逻辑（读流、buffer、split `\n\n`、parse event: / data:）。
+**说明**: `streamDiagnoseContinue` 和 `streamChat` 重复了约 40 行 SSE 解析逻辑（读流、buffer、分割 `\n\n`、解析 event/data）。
 **来源**: Session 交接 05-17 §9.2
 
 ### 4. 前端错误消息透传
 
 **文件**: `frontend/src/components/ChatPage.tsx`
 **状态**: [TODO]
-**说明**: diagnosed 模式 chat 路径的 `case 'error'` 显示硬编码「请求失败，请重试」，未使用 `event.data?.error` 中的实际错误消息（如 Fix #14 的就医建议）。
-**改动**: ~3 行
+**说明**: diagnosed 模式 chat 路径的 `case 'error'` 显示硬编码「请求失败，请重试」，未使用 `event.data?.error` 中的实际错误消息（如 Fix #14 的就医建议文案）。
+**改动量**: ~3 行
 
 ### 5. 同类错误去重
 
@@ -53,7 +53,7 @@ lang: zh-CN
 
 **文件**: `frontend/src/doctor/`
 **状态**: [TODO] 空壳页面
-**说明**: Case 列表、审核、分配。目前 `DoctorDashboard`、`DoctorCases`、`CaseDetailPage` 仅有占位内容。
+**说明**: 病例列表、审核、分配。目前 `DoctorDashboard`、`DoctorCases`、`CaseDetailPage` 仅有占位内容。
 
 ### 7. DoctorAgent 实现
 
@@ -65,15 +65,15 @@ lang: zh-CN
 
 **文件**: 待定
 **状态**: [TODO]
-**说明**: 知识库查询 Agent。
+**说明**: 知识库查询 Agent，封装 SearXNG + RAG 检索。
 
 ### 9. 访客/注册 UX 优化
 
 **文件**: `frontend/src/components/GuestBanner.tsx`, `frontend/src/auth/`
 **状态**: [TODO]
-**说明**: 访客模式 3 轮限制提示、注册流程流畅度。
+**说明**: 访客模式 3 轮限制提示、注册流程流畅度优化。
 
-### 10. chat 端点 GET→POST 验证
+### 10. chat 端点稳定性验证
 
 **说明**: 确认 POST+fetch SSE 模式在各种场景下稳定。当前已验证基本场景。
 
@@ -84,7 +84,7 @@ lang: zh-CN
 ### 11. MCP 工具协议
 
 **状态**: [TODO]
-**说明**: Model Context Protocol 集成，Agent 工具标准化。
+**说明**: Model Context Protocol 集成，Agent 工具调用标准化。
 
 ### 12. GraphRAG
 
@@ -99,7 +99,7 @@ lang: zh-CN
 ### 14. Android App WebView 集成
 
 **状态**: [TODO]
-**说明**: Kotlin + JSBridge 实现。设计方案见 Obsidian `15 - 📱 Android App WebView 集成方案`。
+**说明**: Kotlin + JSBridge。设计方案见 Obsidian `15 - 📱 Android App WebView 集成方案`。
 
 ---
 
@@ -109,15 +109,15 @@ lang: zh-CN
 
 **文件**: `backend/app/services/llm.py`
 **状态**: [TODO]
-**说明**: 主 provider 不可用时自动切换备选。当前仅单 provider。
+**说明**: 主 provider（如 kimi）不可用时自动切换备选（如 GLM/DeepSeek）。当前仅单 provider。
 
-### 16. store_lab_reports 并发安全
+### 16. store_lab_reports 极端并发安全
 
 **文件**: `backend/app/api/v1/agents.py`
 **状态**: [TODO]
-**说明**: bridge 归一化已消除大部分竞态，极端并发下仍可考虑 Redis 锁或 SELECT FOR UPDATE。
+**说明**: bridge 归一化已消除大部分竞态。极端并发下仍可考虑 Redis 锁或 `SELECT FOR UPDATE`。
 
-### 17. ChatInput placeholder 解析完成态
+### 17. ChatInput placeholder 完成态
 
 **文件**: `frontend/src/components/ChatPage.tsx`
 **状态**: [TODO]

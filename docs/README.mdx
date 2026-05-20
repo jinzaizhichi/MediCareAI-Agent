@@ -1,5 +1,5 @@
 ---
-title: MediCareAI-Agent 文档索引
+title: 文档索引 Documentation Index
 lang: zh-CN
 ---
 
@@ -7,7 +7,7 @@ lang: zh-CN
 
 > 多 Agent 自主医疗协作系统 | Multi-Agent Autonomous Medical Collaboration System
 >
-> 最后更新 (Last Updated): 2026-05-19 | Commit: `0c8512d`
+> 最后更新 (Last Updated): 2026-05-19 | Commit: `3bcc3e2`
 
 ---
 
@@ -16,10 +16,10 @@ lang: zh-CN
 | 文档 | 内容 |
 |------|------|
 | [architecture](./architecture.mdx) | 系统架构总览：三轨问诊、诊断后对话、数据流 |
-| [backend](./backend.mdx) | 后端参考：API 端点、Service 层、模型、工具 |
-| [frontend](./frontend.mdx) | 前端参考：组件树、状态管理、上传流程 |
+| [backend](./backend.mdx) | 后端参考：API 端点、Service 层、模型、bridge 归一化 |
+| [frontend](./frontend.mdx) | 前端参考：组件树、chatMode 状态机、上传流程 |
 | [database](./database.mdx) | 数据库 Schema：核心表、JSONB 结构、迁移 |
-| [deployment](./deployment.mdx) | 部署指南：本地开发、VPS 生产、调试 |
+| [deployment](./deployment.mdx) | 部署指南：本地开发、VPS 生产环境、调试命令 |
 | [todos](./todos.mdx) | 已知问题与 TODO：未完成功能、技术债务 |
 
 ---
@@ -28,23 +28,11 @@ lang: zh-CN
 
 MediCareAI-Agent 是一个多 Agent 自主医疗协作系统。核心定位：**不是聊天机器人，而是由多个医疗智能体组成的自主协作系统**。
 
-### 技术栈 (Tech Stack)
+### 生产环境 (Production)
 
-| Layer | Technology |
-|-------|-----------|
-| Backend | Python 3.12 + FastAPI + SQLAlchemy 2.0 (async) |
-| Task Queue | Celery + Redis |
-| Database | PostgreSQL 17 + pgvector |
-| AI/LLM | OpenAI-compatible (kimi-k2.6 / GLM / DeepSeek / Qwen) |
-| Auth | JWT + Role-based (Patient / Doctor / Admin / Guest) |
-| Frontend | React 19 + TypeScript + Vite + MUI v9 |
-| Deploy | Docker Compose → VPS |
-
-### 生产环境
-
-- 域名: `https://openmedicareagent.online`
+- 域名 (Domain): `https://openmedicareagent.online`
 - VPS: `root@47.108.235.30`
-- 容器: 8 (backend, frontend, postgres, redis, celery-worker, celery-beat, searxng, valkey)
+- 容器 (Containers): 8 (backend, frontend, postgres, redis, celery-worker, celery-beat, searxng, valkey)
 
 ### 快速开始 (Quick Start)
 
@@ -54,7 +42,7 @@ cd MediCareAI-Agent
 cp .env.example .env
 docker compose up -d
 # API: http://localhost:8000
-# Docs: http://localhost:8000/docs
+# 接口文档: http://localhost:8000/docs
 ```
 
 ### 开发工作流

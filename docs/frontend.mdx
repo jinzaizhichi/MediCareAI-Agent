@@ -5,7 +5,7 @@ lang: zh-CN
 
 # 🖥️ 前端参考
 
-> React 19 + TypeScript + Vite + MUI v9
+> React 19 + TypeScript 6 + Vite 8 + MUI 9
 
 ---
 
@@ -24,10 +24,10 @@ ChatPage (主页面)
  ├─ PendingCardsPanel         consulting 模式问诊卡
  ├─ FullScreenReport          全屏诊断报告
  ├─ UploadStatusBanner        上传状态横幅
- │    States: idle | parsing | ready | partial_failure | persistent_failure
+ │    状态: idle | parsing | ready | partial_failure | persistent_failure
  └─ ChatInput                 输入框 + 文件上传按钮
 
-Admin Pages:
+管理员端页面:
  ├─ AdminLayout
  ├─ DashboardPage            仪表盘
  ├─ UsersPage                用户管理
@@ -67,12 +67,12 @@ diagnosed → (startNewSession) → idle
   → uploadDocument() 上传到服务器
   → 消息流插入 "正在解析..." (UploadReportCard parsing)
   → activeUploads 追踪 (全模式)
-  → setInterval 轮询 getParseResult() (每 1.5s)
+  → setInterval 轮询 getParseResult() (每 1.5 秒)
        ├─ completed → setActiveUploads + store_lab_reports POST
        └─ failed    → setActiveUploads + failedFileAttempts++
 ```
 
-### store_lab_reports Session ID
+### store_lab_reports 的 session ID
 
 ```typescript
 const uploadSessionId = backendSessionIdRef.current || currentSessionId;
@@ -88,9 +88,9 @@ activeUploads.length > 0 || (chatMode === 'diagnosed' && !uploadBannerDismissed.
 
 | 状态 | 视觉 | 交互 |
 |------|------|------|
-| parsing | 暖金渐变 + 🔄 脉冲动画 | 纯展示 |
-| completed | 浅绿渐变 + ✅ + LabReportCard 默认展开 | 纯展示 |
-| failed | 暖橙渐变 + ❌ + 错误信息 | 纯展示 |
+| 解析中 (parsing) | 暖金渐变 + 🔄 脉冲动画 | 纯展示 |
+| 已完成 (completed) | 浅绿渐变 + ✅ + LabReportCard 默认展开 | 纯展示 |
+| 失败 (failed) | 暖橙渐变 + ❌ + 错误信息 | 纯展示 |
 
 ---
 
@@ -98,17 +98,17 @@ activeUploads.length > 0 || (chatMode === 'diagnosed' && !uploadBannerDismissed.
 
 ### streamDiagnoseContinue (interview 路径)
 
-`api/agent.ts` `streamDiagnoseContinue()`:
+文件 `api/agent.ts` `streamDiagnoseContinue()`:
 - 处理: `thinking`, `tool_call`, `tool_result`, `text`, `structured`, `question`, `complete`, `error`
 - `structured` → setChatMode('diagnosed'), setReportData()
 - `complete` → set backendSessionIdRef.current
 
 ### streamChat (chat 路径)
 
-`api/agent.ts` `streamChat()`:
+文件 `api/agent.ts` `streamChat()`:
 - POST + fetch + ReadableStream SSE 解析
 - 处理: `text`, `complete`, `error`
-- 错误显示: [TODO] 当前硬编码 "请求失败，请重试"
+- 错误显示: [TODO] 当前硬编码 "请求失败，请重试"，未透传后端实际错误消息
 
 ---
 
@@ -127,7 +127,7 @@ export const uploadTokens = {
 };
 ```
 
-### MUI Theme
+### MUI 主题
 
 - `patientTheme`: 主色调 `#E8956A` (暖橙色)
 - `doctorTheme`: 医生端主题
@@ -141,7 +141,7 @@ export const uploadTokens = {
 | ChatPage 三模式状态机 | ✅ |
 | UploadStatusBanner 5 态 | ✅ |
 | UploadReportCard 统一卡片 | ✅ |
-| cross-mode upload tracking | ✅ |
+| 全模式上传追踪 | ✅ |
 | 医生端页面 (CaseDetail, DoctorDashboard) | [TODO] 空壳 |
 | 前端错误消息透传 | [TODO] |
 | 同类错误去重 | [TODO] |

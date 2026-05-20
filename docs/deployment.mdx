@@ -11,16 +11,15 @@ lang: zh-CN
 
 ## 1. 标准部署流程
 
-### 自检仪式
+### 自检仪式（每次执行前）
 
-每次执行命令前:
 ```
 - [ ] 没有直接修改生产环境？
 - [ ] 本地代码已修改？
 - [ ] 修改内容已确认？
 ```
 
-### 步骤
+### 详细步骤
 
 ```bash
 # 1. 本地修复
@@ -30,20 +29,20 @@ lang: zh-CN
 python3 -c "compile(open('backend/app/services/orchestrator.py').read(),'o','exec');print('OK')"
 cd frontend && npx tsc --noEmit
 
-# 3. Git Commit
+# 3. Git 提交
 git add -A
-git commit -m "type(scope): description"
+git commit -m "类型(范围): 描述"
 
-# 4. Git Push
+# 4. Git 推送
 echo '#!/bin/bash\necho "zhanxiaopi"' > /tmp/askpass.sh
 chmod +x /tmp/askpass.sh
 SSH_ASKPASS=/tmp/askpass.sh DISPLAY=dummy git push origin main
 
-# 5. VPS Pull
+# 5. VPS 拉取
 ssh root@47.108.235.30 "cd /opt/MediCareAI-Agent && git fetch origin && git reset --hard origin/main"
 
-# 6. Build & Deploy (顺序构建！)
-# 全量:
+# 6. 构建并部署（顺序构建！禁止并行）
+# 全量部署:
 ssh root@47.108.235.30 "cd /opt/MediCareAI-Agent && docker system prune -f && docker compose build --no-cache backend && docker compose build --no-cache frontend && docker compose up -d --force-recreate"
 
 # 仅前端:
@@ -52,7 +51,7 @@ ssh root@47.108.235.30 "cd /opt/MediCareAI-Agent && docker compose build --no-ca
 # 仅后端:
 ssh root@47.108.235.30 "cd /opt/MediCareAI-Agent && docker compose build --no-cache backend && docker compose up -d --force-recreate backend celery-worker celery-beat"
 
-# 7. Verify
+# 7. 验证
 ssh root@47.108.235.30 "docker ps --format 'table {{.Names}}\t{{.Status}}'"
 curl -s -o /dev/null -w "%{http_code}" https://openmedicareagent.online/
 ```
@@ -63,7 +62,7 @@ curl -s -o /dev/null -w "%{http_code}" https://openmedicareagent.online/
 
 | 容器 | 镜像 | 端口 |
 |------|------|------|
-| medicareai-backend | 自建 (Python 3.12) | 8000 (内部) |
+| medicareai-backend | 自建 (Python 3.12) | 8000（内部） |
 | medicareai-frontend | 自建 (Node 22 + Nginx) | 80/443 |
 | medicareai-postgres | pgvector/pgvector:pg17 | 5432 |
 | medicareai-redis | redis:7-alpine | 6379 |
@@ -80,14 +79,14 @@ curl -s -o /dev/null -w "%{http_code}" https://openmedicareagent.online/
 git clone https://github.com/HougeLangley/MediCareAI-Agent.git
 cd MediCareAI-Agent
 cp .env.example .env
-# 编辑 .env 填入 API keys
+# 编辑 .env 填入 API key
 
 docker compose up -d
 # API: http://localhost:8000
-# Swagger: http://localhost:8000/docs
+# Swagger 文档: http://localhost:8000/docs
 ```
 
-### 跑测试
+### 运行测试
 
 ```bash
 cd backend
@@ -117,7 +116,7 @@ ssh root@47.108.235.30 "docker logs medicareai-backend 2>&1 | tail -30"
 ssh root@47.108.235.30 "docker logs medicareai-backend 2>&1 | grep -E 'CHAT-CTX|CHAT-LLM|CHAT-OK' | tail -5"
 ```
 
-### DB 查询最近 session
+### 数据库查询最近 session
 
 ```bash
 ssh root@47.108.235.30 "docker exec medicareai-postgres psql -U postgres -d medicareai -c \"
@@ -125,7 +124,7 @@ SELECT id, session_type, status, jsonb_array_length(context->'lab_reports') as l
        created_at FROM agent_sessions ORDER BY created_at DESC LIMIT 10;\""
 ```
 
-### DB 迁移
+### 数据库迁移
 
 ```bash
 ssh root@47.108.235.30 "docker exec medicareai-backend alembic upgrade head"
@@ -134,40 +133,9 @@ ssh root@47.108.235.30 "docker exec medicareai-backend alembic heads"
 
 ---
 
-## 5. 环境变量
+## 5. 构建规则
 
-`.env.example`:
-
-```
-# Database
-DB_USER=postgres
-DB_PASSWORD=postgres
-DB_NAME=medicareai
-DB_PORT=5432
-
-# App
-APP_NAME=MediCareAI-Agent
-SECRET_KEY=...
-DEBUG=false
-SENTRY_DSN=...
-
-# LLM Providers
-LLM_PROVIDER=moonshot
-LLM_API_KEY=...
-
-# Redis
-REDIS_URL=redis://redis:6379/0
-
-# Admin
-DEFAULT_ADMIN_EMAIL=admin@medicareai.dev
-DEFAULT_ADMIN_PASSWORD=...
-```
-
----
-
-## 6. 构建规则
-
-1. **绝不并行构建** — Backend → Frontend 顺序
+1. **绝不并行构建** — Backend 先构建，Frontend 后构建
 2. **部署前清理** — `docker system prune -f`
 3. **每次部署必须验证** — 健康检查 + HTTP 200
-4. **Admin 界面不由 Agent 测试** — 由管理员完成
+4. **管理员界面不由 Agent 测试** — 由管理员完成
