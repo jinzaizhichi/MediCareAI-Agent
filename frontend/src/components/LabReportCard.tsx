@@ -38,7 +38,6 @@ export default function LabReportCard({ report, onConfirm, confirmed }: Props) {
         borderRadius: 2,
         border: '1px solid',
         borderColor: hasError ? '#FFCDD2' : needsReview ? '#FFF3E0' : '#C8E6C9',
-        overflow: 'hidden',
         mb: 1.5,
       }}
     >
@@ -85,7 +84,7 @@ export default function LabReportCard({ report, onConfirm, confirmed }: Props) {
         </Box>
       ) : report.indicators.length > 0 ? (
         <TableContainer>
-          <Table size="small">
+          <Table size="small" sx={{ minWidth: 480 }}>
             <TableHead>
               <TableRow sx={{ bgcolor: '#FAFAFA' }}>
                 <TableCell sx={{ fontWeight: 600, fontSize: 13 }}>指标</TableCell>

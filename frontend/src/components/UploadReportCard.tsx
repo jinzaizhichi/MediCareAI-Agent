@@ -58,7 +58,6 @@ export default function UploadReportCard({ fileName, status, report, error }: Pr
           background: uploadTokens.completed.gradient,
           border: `1px solid ${uploadTokens.completed.border}`,
           maxWidth: '85%',
-          overflow: 'hidden',
         }}
       >
         <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
