@@ -186,12 +186,6 @@ export default function ChatPage() {
       let structured: DiagnosisReport | undefined;
       const workflowSteps: WorkflowStep[] = [];
 
-      // Build patient history from previous messages for context
-      const patientHistory = messages
-        .filter(m => m.role === 'user' || m.role === 'agent')
-        .map(m => `${m.role === 'user' ? '患者' : '医生'}: ${m.content}`)
-        .join('\n');
-
       // 工作流步骤辅助函数
       const addStep = (step: Omit<WorkflowStep, 'id' | 'timestamp'>) => {
         const newStep: WorkflowStep = { ...step, id: generateId(), timestamp: new Date() };
@@ -250,6 +244,15 @@ export default function ChatPage() {
         }
         return;
       }
+
+      // Lightweight patient history — only user Q&A, exclude verbose reports.
+      // The diagnosis pipeline uses this for classify_intent context.
+      // The chat endpoint (_build_chat_context) loads full context from DB.
+      const patientHistory = messages
+        .filter(m => m.role === 'user' && m.content.length < 500)
+        .map(m => `患者: ${m.content.slice(0, 300)}`)
+        .join('\n')
+        .slice(0, 3000);
 
       try {
         await agentApi.streamDiagnose(
