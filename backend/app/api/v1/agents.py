@@ -797,21 +797,21 @@ async def route_stream(
                     structured = existing_session.structured_output
 
                     if phase == "completed" and structured:
-                        ctx: dict[str, Any] = {"has_completed_diagnosis": True}
+                        session_ctx: dict[str, Any] = {"has_completed_diagnosis": True}
 
                         primary = structured.get("primary_diagnosis", "")
                         severity = structured.get("severity", "")
                         if primary:
-                            ctx["diagnosis_summary"] = (
+                            session_ctx["diagnosis_summary"] = (
                                 f"Primary: {primary}"
                                 + (f" Severity: {severity}" if severity else "")
                             )
 
                         collected = interview.get("collected_info", {})
                         if collected:
-                            ctx["interview_collected"] = collected
+                            session_ctx["interview_collected"] = collected
 
-                        session_context = ctx
+                        session_context = session_ctx
             except (ValueError, Exception):
                 pass
 
