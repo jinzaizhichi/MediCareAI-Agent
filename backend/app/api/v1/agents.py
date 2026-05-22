@@ -1126,12 +1126,17 @@ async def route_stream(
 
                 yield f"event: complete\ndata: {json.dumps({'message': '✅ 响应完成'})}\n\n"
 
-        except Exception as e:
+        except BaseException as e:
+            if isinstance(e, (KeyboardInterrupt, SystemExit)):
+                raise
             import traceback
             import logging as _logmod
             _log = _logmod.getLogger("agents")
-            _log.error("[STREAM-FATAL] error=%s\n%s", e, traceback.format_exc())
-            yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+            _log.error("[STREAM-FATAL] error=%s type=%s\n%s", e, type(e).__name__, traceback.format_exc())
+            try:
+                yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+            except BaseException:
+                pass
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
@@ -1296,12 +1301,18 @@ async def route_stream_continue(
 
                 yield f"event: complete\ndata: {json.dumps({'message': '✅ 响应完成', 'session_id': session_id})}\n\n"
 
-        except Exception as e:
+        except BaseException as e:
+            if isinstance(e, (KeyboardInterrupt, SystemExit)):
+                raise
             import traceback
             import logging as _logmod
             _log = _logmod.getLogger("agents")
-            _log.error("[CONTINUE-FATAL] error=%s\n%s", e, traceback.format_exc())
-            yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+            _log.error("[CONTINUE-FATAL] error=%s type=%s\n%s", e, type(e).__name__, traceback.format_exc())
+            try:
+                yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+            except BaseException:
+                pass
+
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
