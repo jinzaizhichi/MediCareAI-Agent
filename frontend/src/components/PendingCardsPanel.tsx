@@ -220,6 +220,7 @@ function CardItem({
 
 export default function PendingCardsPanel({ messages, answeredIds, onAnswer }: Props) {
   const pending = useMemo(() => getPendingCards(messages, answeredIds), [messages, answeredIds]);
+  console.log("[DEBUG-CARD] PendingCardsPanel render:", { pending: pending.length, chatMsgs: messages.length, msgWithCards: messages.filter(m => (m as any).interviewQuestions?.length).length });
   const [collapsed, setCollapsed] = useState(false);
 
   if (pending.length === 0) return null;

@@ -160,6 +160,7 @@ export default function ChatPage() {
 
       if (chatMode === 'idle') {
         setChatMode('consulting');
+        console.log('[DEBUG-CARD] chatMode → consulting');
       }
 
       if (!getToken()) {
@@ -345,6 +346,7 @@ export default function ChatPage() {
               case 'question': {
                 const q = event.data as unknown as { question_id: string; question: string; type: string; options?: string[]; hint?: string; allow_skip?: boolean; colloquial_phase?: string; phase?: string; questions?: InterviewQuestion[] };
                 const qs: InterviewQuestion[] = 'questions' in event.data ? (event.data as { questions: InterviewQuestion[] }).questions : [q as InterviewQuestion];
+                  console.log("[DEBUG-CARD] handleSend question:", { count: qs.length, ids: qs.map(x => x.question_id), chatMode });
                 // sessionId will be set when 'complete' event with status='waiting_for_answer' arrives
                 // For now, just set the questionId; sessionId is updated in the 'complete' handler
                 if (!pendingSessionRef.current) {
@@ -405,6 +407,7 @@ export default function ChatPage() {
                 if (sid) backendSessionIdRef.current = sid;
                 const status = event.data?.status as string;
                 if (status === 'waiting_for_answer') {
+                  console.log("[DEBUG-CARD] complete waiting_for_answer:", { sid, hasPending: !!pendingSessionRef.current });
                   if (sid) {
                     if (!pendingSessionRef.current) {
                       pendingSessionRef.current = { sessionId: sid, questionId: '' };
@@ -558,6 +561,7 @@ export default function ChatPage() {
               case 'question': {
                 const q = event.data as unknown as { question_id: string; question: string; type: string; options?: string[]; hint?: string; allow_skip?: boolean; colloquial_phase?: string; phase?: string; questions?: InterviewQuestion[] };
                 const qs: InterviewQuestion[] = 'questions' in event.data ? (event.data as { questions: InterviewQuestion[] }).questions : [q as InterviewQuestion];
+                  console.log("[DEBUG-CARD] handleInterviewAnswer question:", { count: qs.length, ids: qs.map(x => x.question_id) });
                 // sessionId will be set when 'complete' event with status='waiting_for_answer' arrives
                 // For now, just set the questionId; sessionId is updated in the 'complete' handler
                 if (!pendingSessionRef.current) {
@@ -616,6 +620,7 @@ export default function ChatPage() {
               case 'complete': {
                 const status = event.data?.status as string;
                 if (status === 'waiting_for_answer') {
+                  console.log("[DEBUG-CARD] complete waiting_for_answer:", { sid, hasPending: !!pendingSessionRef.current });
                   const sid = event.data?.session_id as string;
                   if (sid) {
                     if (!pendingSessionRef.current) {
