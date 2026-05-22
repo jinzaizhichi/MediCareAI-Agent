@@ -785,7 +785,37 @@ async def route_stream(
 
         yield f"event: thinking\ndata: {json.dumps({'step': 'master', 'message': '🧠 MasterAgent 正在分析您的需求...'})}\n\n"
 
-        intent_result = await master.master.classify_intent(message)
+        # Load session context for context-aware intent classification
+        session_context = None
+        query_sid = request.query_params.get("session_id")
+        if query_sid:
+            try:
+                existing_session = await db.get(AgentSession, uuid.UUID(query_sid))
+                if existing_session and existing_session.context:
+                    interview = existing_session.context.get("interview", {})
+                    phase = interview.get("phase", "")
+                    structured = existing_session.structured_output
+
+                    if phase == "completed" and structured:
+                        ctx: dict[str, Any] = {"has_completed_diagnosis": True}
+
+                        primary = structured.get("primary_diagnosis", "")
+                        severity = structured.get("severity", "")
+                        if primary:
+                            ctx["diagnosis_summary"] = (
+                                f"Primary: {primary}"
+                                + (f" Severity: {severity}" if severity else "")
+                            )
+
+                        collected = interview.get("collected_info", {})
+                        if collected:
+                            ctx["interview_collected"] = collected
+
+                        session_context = ctx
+            except (ValueError, Exception):
+                pass
+
+        intent_result = await master.master.classify_intent(message, session_context=session_context)
         intent = intent_result.get("intent", "diagnosis")
         confidence = intent_result.get("confidence", "medium")
         reasoning = intent_result.get("reasoning", "")

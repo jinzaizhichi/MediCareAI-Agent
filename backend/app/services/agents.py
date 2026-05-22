@@ -159,13 +159,18 @@ ROLE:
 
 INTENT CATEGORIES:
 - "diagnosis": Patient reports symptoms, asks about a condition, or seeks a diagnosis.
-  **All symptom reports go here**, including urgent/severe ones — red flags are handled
+  All symptom reports go here, including urgent/severe ones — red flags are handled
   within the diagnosis pipeline, not by skipping the interview.
-- "planning": Patient asks about treatment, medication, follow-up, or care plans
-- "monitoring": Patient reports updates on an existing condition, asks about recovery
+  Also use "diagnosis" for follow-up questions about a known diagnosis (e.g. asking
+  about severity, medication, test results, or prognosis).
+- "planning": Patient asks about treatment plans, medication schedules, follow-up
+  appointments, or care coordination
+- "monitoring": Patient reports progress or lack thereof on a known condition,
+  asks about recovery status, or provides health updates
 - "consultation": Complex multi-step request that may need diagnosis + planning
-- "research": User asks about latest guidelines, drug info, clinical trials, or medical papers
-- "general": General medical knowledge question (not personal)
+- "research": User asks about latest guidelines, drug info, clinical trials, or
+  medical papers (impersonal knowledge questions)
+- "general": General medical knowledge question not tied to a personal case
 
 OUTPUT FORMAT:
 Respond with a JSON object:
@@ -178,26 +183,75 @@ Respond with a JSON object:
 
 RULES:
 - Symptom reports ALWAYS use "diagnosis" intent, regardless of severity.
-  The diagnosis pipeline handles red flags, urgency, and escalation internally.
-- If the user says "我咳嗽一周了", intent is "diagnosis".
-- If the user says "我呕血了", intent is "diagnosis" (NOT escalation — still needs interview).
-- If the user says "药吃完了怎么办", intent is "planning".
-- If the user says "有没有好转", intent is "monitoring".
-- If the user says "帮我安排复查并提醒我", intent is "consultation".
-- If the user says "最近有什么新的糖尿病治疗方案吗", intent is "research".
-- If the user says "阿司匹林有什么副作用", intent is "research".
+- Follow-up questions about an existing diagnosis (e.g. severity, medication,
+  test interpretation, prognosis) are "diagnosis" — the pipeline handles them.
+- Progress updates on a known condition ("feeling better", "still coughing") are
+  "monitoring".
+- Questions about external medical knowledge (guidelines, drug info, clinical
+  trials) are "research" — not "diagnosis".
+- Only use "planning" when the user explicitly asks about treatment schedules,
+  appointments, or care coordination — not for general diagnosis follow-ups.
 """
 
     def __init__(self, provider: str | None = None) -> None:
         self.provider = provider
 
-    async def classify_intent(self, user_input: str) -> dict[str, Any]:
-        """Classify user intent and return routing decision."""
+    async def classify_intent(
+        self,
+        user_input: str,
+        session_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Classify user intent and return routing decision.
+
+        Args:
+            user_input: The raw text from the user.
+            session_context: Optional dict with session state for context-aware
+                classification. Keys:
+                - has_completed_diagnosis (bool)
+                - diagnosis_summary (str, max ~300 chars)
+                - interview_collected (dict)
+        """
+        # Build dynamic system prompt from session context if available
+        system_prompt = self.SYSTEM_PROMPT
+        if session_context:
+            ctx_parts: list[str] = []
+
+            if session_context.get("has_completed_diagnosis"):
+                ctx_parts.append(
+                    "CURRENT STATE: This patient has already completed a medical "
+                    "consultation and received a diagnosis. Their current message "
+                    "may be:\n"
+                    "  (a) A follow-up question about the diagnosis -> intent 'diagnosis'\n"
+                    "  (b) A progress update on their condition -> intent 'monitoring'\n"
+                    "  (c) A new, unrelated symptom -> intent 'diagnosis'\n"
+                    "Use your judgment based on the message content."
+                )
+
+            diag = session_context.get("diagnosis_summary", "")
+            if diag:
+                ctx_parts.insert(0, f"Recent diagnosis:\n{diag[:300]}")
+
+            collected = session_context.get("interview_collected", {})
+            if collected:
+                items = [
+                    f"  - {k}: {str(v)[:100]}"
+                    for k, v in collected.items()
+                    if not k.startswith("__") and v
+                ][:6]
+                if items:
+                    ctx_parts.insert(0, "Interview findings:\n" + "\n".join(items))
+
+            if ctx_parts:
+                system_prompt = (
+                    system_prompt + "\n\n---\n\n"
+                    + "\n\n".join(ctx_parts) + "\n\n---"
+                )
+
         async with async_session_maker() as db:
             llm = LLMService(provider=self.provider, db=db)
             resp = await llm.chat(
                 messages=[{"role": "user", "content": user_input}],
-                system_prompt=self.SYSTEM_PROMPT,
+                system_prompt=system_prompt,
                 max_tokens=512,
             )
             try:
