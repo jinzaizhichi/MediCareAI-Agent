@@ -776,355 +776,362 @@ async def route_stream(
         )
 
     async def event_generator():
-        # Emit new guest token if one was auto-created
-        if ctx.is_guest and ctx.guest_id:
-            yield f"event: guest_token\ndata: {json.dumps({'guest_token': getattr(ctx, '_new_token', None) or ''})}\n\n"
+        try:
+                # Emit new guest token if one was auto-created
+                if ctx.is_guest and ctx.guest_id:
+                    yield f"event: guest_token\ndata: {json.dumps({'guest_token': getattr(ctx, '_new_token', None) or ''})}\n\n"
 
-        master = AgentOrchestrator(provider=provider)
-        actual_patient_id = patient_id or (str(ctx.user.id) if ctx.user else None)
+                master = AgentOrchestrator(provider=provider)
+                actual_patient_id = patient_id or (str(ctx.user.id) if ctx.user else None)
 
-        yield f"event: thinking\ndata: {json.dumps({'step': 'master', 'message': '🧠 MasterAgent 正在分析您的需求...'})}\n\n"
+                yield f"event: thinking\ndata: {json.dumps({'step': 'master', 'message': '🧠 MasterAgent 正在分析您的需求...'})}\n\n"
 
-        # Load session context for context-aware intent classification
-        session_context = None
-        query_sid = request.query_params.get("session_id")
-        if query_sid:
-            try:
-                existing_session = await db.get(AgentSession, uuid.UUID(query_sid))
-                if existing_session and existing_session.context:
-                    interview = existing_session.context.get("interview", {})
-                    phase = interview.get("phase", "")
-                    structured = existing_session.structured_output
+                # Load session context for context-aware intent classification
+                session_context = None
+                query_sid = request.query_params.get("session_id")
+                if query_sid:
+                    try:
+                        existing_session = await db.get(AgentSession, uuid.UUID(query_sid))
+                        if existing_session and existing_session.context:
+                            interview = existing_session.context.get("interview", {})
+                            phase = interview.get("phase", "")
+                            structured = existing_session.structured_output
 
-                    if phase == "completed" and structured:
-                        session_ctx: dict[str, Any] = {"has_completed_diagnosis": True}
+                            if phase == "completed" and structured:
+                                session_ctx: dict[str, Any] = {"has_completed_diagnosis": True}
 
-                        primary = structured.get("primary_diagnosis", "")
-                        severity = structured.get("severity", "")
-                        if primary:
-                            session_ctx["diagnosis_summary"] = (
-                                f"Primary: {primary}"
-                                + (f" Severity: {severity}" if severity else "")
+                                primary = structured.get("primary_diagnosis", "")
+                                severity = structured.get("severity", "")
+                                if primary:
+                                    session_ctx["diagnosis_summary"] = (
+                                        f"Primary: {primary}"
+                                        + (f" Severity: {severity}" if severity else "")
+                                    )
+
+                                collected = interview.get("collected_info", {})
+                                if collected:
+                                    session_ctx["interview_collected"] = collected
+
+                                session_context = session_ctx
+                    except (ValueError, Exception):
+                        pass
+
+                intent_result = await master.master.classify_intent(message, session_context=session_context)
+                intent = intent_result.get("intent", "diagnosis")
+                confidence = intent_result.get("confidence", "medium")
+                reasoning = intent_result.get("reasoning", "")
+
+                yield f"event: intent\ndata: {json.dumps(intent_result)}\n\n"
+                yield f"event: thinking\ndata: {json.dumps({'step': 'master_done', 'message': f'✅ 意图识别完成: {intent} (置信度: {confidence})', 'detail': reasoning})}\n\n"
+
+                # ─── Step 2: Agent 切换 ───
+                agent_name_map = {
+                    "diagnosis": "DiagnosisAgent 诊断专家",
+                    "planning": "PlanningAgent 治疗规划",
+                    "monitoring": "MonitoringAgent 随访监测",
+                    "research": "ResearchAgent 医学研究",
+                    "consultation": "Consultation 综合诊疗",
+                    "general": "General 通用医疗",
+                }
+                # Escalation is now handled within the diagnosis pipeline — not a separate route
+                if intent == "escalation":
+                    intent = "diagnosis"
+                agent_display = agent_name_map.get(intent, agent_name_map["general"])
+
+                yield f"event: agent_switch\ndata: {json.dumps({'agent': intent, 'agent_display': agent_display, 'message': f'🔄 正在切换到 {agent_display}...'})}\n\n"
+
+                # ─── Step 3: 专科 Agent 处理 + 流式输出 ───
+                async with async_session_maker() as db_stream:
+                    llm = LLMService(provider=provider, platform=ctx.platform, db=db_stream)
+
+                    # 根据意图构建专属 system prompt
+                    system_prompts = {
+                        "diagnosis": """You are DiagnosisAgent, an expert diagnostic AI physician.
+
+        ROLE:
+        - Analyze patient symptoms thoroughly
+        - Consider differential diagnoses
+        - Ask clarifying questions when needed
+        - Flag emergency conditions immediately
+
+        OUTPUT FORMAT:
+        Use Markdown formatting:
+        - **bold** for important medical terms
+        - bullet lists for findings/suggestions
+        - numbered lists for step-by-step advice
+        - ### headers for sections
+
+        Always include:
+        1. Possible causes analysis
+        2. Key questions to narrow down
+        3. Self-care recommendations
+        4. Red flags requiring immediate medical attention
+        5. Disclaimer
+
+        SAFETY: Never dismiss patient concerns. Flag emergencies.""",
+
+                        "planning": """You are PlanningAgent, an expert treatment planning AI.
+
+        ROLE:
+        - Generate evidence-based treatment plans
+        - Recommend medications with dosing when appropriate
+        - Suggest lifestyle modifications
+        - Plan follow-up schedule
+
+        OUTPUT FORMAT:
+        Use Markdown formatting with clear sections.""",
+
+                        "monitoring": """You are MonitoringAgent, a patient follow-up AI.
+
+        ROLE:
+        - Analyze patient-reported outcomes
+        - Detect deterioration or improvement trends
+        - Generate alerts when thresholds are crossed
+
+        OUTPUT FORMAT:
+        Use Markdown formatting.""",
+
+                        "research": """You are ResearchAgent, a medical research assistant.
+
+        ROLE:
+        - Synthesize medical knowledge into clear answers
+        - Cite sources when possible
+        - Distinguish evidence levels
+
+        OUTPUT FORMAT:
+        Use Markdown formatting.""",
+
+                        "general": """You are MediCareAI-Agent, a helpful medical AI assistant.
+
+        ROLE:
+        - Provide accurate, evidence-based medical information
+        - Be clear and compassionate
+        - Always include appropriate disclaimers
+
+        OUTPUT FORMAT:
+        Use Markdown formatting for readability.""",
+                    }
+
+                    system_prompt = system_prompts.get(intent, system_prompts["general"])
+
+                    # 添加患者上下文
+                    messages: list[dict[str, str]] = [{"role": "user", "content": message}]
+                    if patient_history:
+                        messages.insert(0, {"role": "system", "content": f"Patient history context: {patient_history}"})
+
+                    # 加载已上传的化验单解析结果到上下文
+                    session_id: str | None = None
+                    query_sid = request.query_params.get("session_id")
+                    if query_sid:
+                        import logging as _logmod
+                        _log = _logmod.getLogger("debug.t3")
+                        _log.info("[DEBUG-T3] route_stream: query_sid=%s", query_sid)
+                        # Try DB lookup first (real UUID sessions)
+                        try:
+                            _qs = await db.get(AgentSession, uuid.UUID(query_sid))
+                            if _qs and _qs.context:
+                                lab_reports = _qs.context.get("lab_reports", [])
+                                if lab_reports:
+                                    _log.info("[DEBUG-T3] route_stream: DB lookup found %d reports", len(lab_reports))
+                                    _inject_lab_context(messages, lab_reports)
+                                else:
+                                    _log.info("[DEBUG-T3] route_stream: DB session exists but no lab_reports in context")
+                        except (ValueError, Exception):
+                            _log.info("[DEBUG-T3] route_stream: DB lookup failed (non-UUID or missing)")
+                        # Fallback: check in-memory bridge for frontend-generated session IDs
+                        if not any("已上传的检查报告" in m.get("content", "") for m in messages):
+                            lab_reports = _session_lab_bridge.get(query_sid, [])
+                            if lab_reports:
+                                _log.info("[DEBUG-T3] route_stream: bridge found %d reports for key=%s", len(lab_reports), query_sid)
+                                _inject_lab_context(messages, lab_reports)
+                            else:
+                                _log.warning("[DEBUG-T3] route_stream: bridge EMPTY for key=%s, bridge_keys=%s", query_sid, list(_session_lab_bridge.keys()))
+
+                    if intent == "diagnosis":
+                        # ─── Interview phase: collect info before diagnosis ───
+                        # Create a session to persist interview state (if not already loaded)
+                        if not session_id:
+                            try:
+                                new_session = await master._create_session(
+                                    user_id=uuid.UUID(actual_patient_id) if actual_patient_id else None,
+                                    session_type=AgentSessionType.DIAGNOSIS,
+                                    intent="diagnosis",
+                                )
+                                if new_session:
+                                    session_id = str(new_session.id)
+                                    # Carry over lab reports from bridge into the new session context
+                                    if query_sid:
+                                        # Store frontend session ID so interview_answer can find bridge data
+                                        _nctx = dict(new_session.context or {})
+                                        _nctx["_frontend_sid"] = query_sid
+                                        bridge_reports = _session_lab_bridge.get(query_sid, [])
+                                        if bridge_reports:
+                                            _nctx["lab_reports"] = bridge_reports
+                                            import logging as _log2
+                                            _log2.getLogger("debug.t3").info("[DEBUG-T3] route_stream: copied %d bridge reports to new session %s", len(bridge_reports), session_id)
+                                        new_session.context = _nctx
+                                        async with async_session_maker() as _bdb:
+                                            _bs = await _bdb.get(AgentSession, uuid.UUID(session_id))
+                                            if _bs:
+                                                _bs.context = _nctx
+                                                await _bdb.commit()
+                            except Exception:
+                                pass
+
+                        diag_agent = DiagnosisAgent(provider=provider)
+
+                        if session_id:
+                            try:
+                                questions, state, searches, action, reasoning = await diag_agent.interview(
+                                    session_id=session_id,
+                                    chief_complaint=message,
+                                    patient_history=patient_history,
+                                )
+                                if searches:
+                                    yield f"event: thinking\ndata: {json.dumps({'step': 'search', 'message': '🔍 后台搜索中，请先作答...'})}\n\n"
+                                if questions:
+                                    yield f"event: interview_progress\ndata: {json.dumps({'asked_count': len(state.asked_questions), 'phase': '问诊中'})}\n\n"
+                                    q_list = []
+                                    for nq in questions:
+                                        q_list.append({
+                                            "question_id": nq.question_id, "question": nq.question, "type": nq.type,
+                                            "options": nq.options, "hint": nq.hint, "allow_skip": nq.allow_skip,
+                                            "phase": nq.phase, "colloquial_phase": nq.colloquial_phase,
+                                        })
+                                    yield f"event: question\ndata: {json.dumps({'questions': q_list})}\n\n"
+                                    yield f"event: complete\ndata: {json.dumps({'status': 'waiting_for_answer', 'session_id': session_id})}\n\n"
+                                    return
+                                elif state.red_flags_detected:
+                                    yield f"event: red_flags\ndata: {json.dumps({'red_flags': state.red_flags_detected, 'message': '检测到危险信号，建议立即就医'})}\n\n"
+                                    # Do NOT return — proceed to diagnosis with red flags included
+
+                                # Redis lock first — prevent concurrent diagnoses
+                                from app.db.redis_client import get_redis
+                                redis_client = get_redis()
+                                lock_key = f"diag_lock:{session_id}"
+                                locked = await redis_client.set(lock_key, "1", nx=True, ex=300)
+                                if not locked:
+                                    yield f"event: complete\ndata: {json.dumps({'status': 'already_diagnosed', 'session_id': session_id})}\n\n"
+                                    return
+
+                                yield f"event: thinking\ndata: {json.dumps({'step': 'diagnosis', 'message': '🧠 问诊信息充足，正在综合分析并搜索医学知识...'})}\n\n"
+
+                                workflow_result = await diag_agent.run_full_diagnosis_workflow(
+                                    session_id=session_id,
+                                    patient_id=actual_patient_id,
+                                    patient_history=patient_history,
+                                )
+                                if workflow_result.tool_calls_used:
+                                    for tc in workflow_result.tool_calls_used:
+                                        tname = tc.get('tool', '?')
+                                        yield f"event: tool_call\ndata: {json.dumps({'tool': tname, 'params': tc.get('arguments', {}), 'message': '🔍 正在执行 ' + tname + '...'})}\n\n"
+                                        await asyncio.sleep(0.2)
+                                        yield f"event: tool_result\ndata: {json.dumps({'tool': tname, 'result': tc.get('result', {}), 'message': '✅ ' + tname + ' 执行完成'})}\n\n"
+                                if workflow_result.structured_output:
+                                    yield f"event: structured\ndata: {json.dumps(workflow_result.structured_output.model_dump())}\n\n"
+                                    report_md = _diagnosis_report_to_markdown(workflow_result.structured_output.model_dump())
+                                    for chunk in _chunk_text(report_md, chunk_size=80):
+                                        yield f"event: text\ndata: {json.dumps({'text': chunk})}\n\n"
+
+                                    # Plan C: Auto-create MedicalCase for registered users
+                                    if actual_patient_id and session_id:
+                                        try:
+                                            from app.models.medical_case import MedicalCase as MC, CaseStatus as CS
+                                            from sqlalchemy import select as _sel
+                                            existing = await db.execute(
+                                                _sel(MC).where(MC.source_session_id == uuid.UUID(session_id))
+                                            )
+                                            if not existing.scalar_one_or_none():
+                                                report = workflow_result.structured_output.model_dump()
+                                                chief = interview_data.get("chief_complaint", message) if 'interview_data' in dir() else message
+                                                mc = MC(
+                                                    patient_id=uuid.UUID(actual_patient_id),
+                                                    source_session_id=uuid.UUID(session_id),
+                                                    title=f"AI Diagnosis: {report.get('primary_diagnosis', 'Unknown')[:50]}",
+                                                    chief_complaint=chief,
+                                                    ai_diagnosis_summary=report.get('primary_diagnosis', '')[:500],
+                                                    severity=report.get('severity', 'unknown'),
+                                                    is_emergency=(report.get('severity') == 'emergency'),
+                                                    status=CS.PENDING_REVIEW,
+                                                )
+                                                db.add(mc)
+                                                await db.commit()
+                                        except Exception:
+                                            pass
+                                else:
+                                    content = workflow_result.content if isinstance(workflow_result.content, str) else ''
+                                    for chunk in _chunk_text(content, chunk_size=80):
+                                        yield f"event: text\ndata: {json.dumps({'text': chunk})}\n\n"
+                                yield f"event: complete\ndata: {json.dumps({'message': '✅ 响应完成', 'session_id': session_id})}\n\n"
+                                return
+                            except Exception:
+                                # Interview failed — fall through to direct diagnosis
+                                pass
+
+                        _msg_start = "🧠 DiagnosisAgent 正在启动真实诊断分析..."
+                        yield f"event: thinking\ndata: {json.dumps({'step': 'diagnosis', 'message': _msg_start})}\n\n"
+
+                        try:
+                            result = await diag_agent.analyze(
+                                symptoms=message,
+                                patient_id=actual_patient_id,
+                                patient_history=patient_history,
+                                session_id=session_id,
                             )
 
-                        collected = interview.get("collected_info", {})
-                        if collected:
-                            session_ctx["interview_collected"] = collected
+                            # 流式展示真实工具调用记录
+                            if result.tool_calls_used:
+                                for tc in result.tool_calls_used:
+                                    tool_name = tc.get("tool", "unknown")
+                                    args = tc.get("arguments", {})
+                                    _tc_msg = "\ud83d\udd0d \u6b63\u5728\u6267\u884c " + tool_name + "..."
+                                    yield f"event: tool_call\ndata: {json.dumps({'tool': tool_name, 'params': args, 'message': _tc_msg})}\n\n"
+                                    await asyncio.sleep(0.2)
+                                    result_data = tc.get("result", {})
+                                    _tr_msg = "\u2705 " + tool_name + " \u6267\u884c\u5b8c\u6210"
+                                    yield f"event: tool_result\ndata: {json.dumps({'tool': tool_name, 'result': result_data, 'message': _tr_msg})}\n\n"
 
-                        session_context = session_ctx
-            except (ValueError, Exception):
-                pass
+                            _msg_analyze = "\ud83e\udde0 DiagnosisAgent \u6b63\u5728\u7efc\u5408\u5206\u6790\u5e76\u751f\u6210\u7ed3\u6784\u5316\u62a5\u544a..."
+                            yield f"event: thinking\ndata: {json.dumps({'step': 'diagnosis', 'message': _msg_analyze})}\n\n"
 
-        intent_result = await master.master.classify_intent(message, session_context=session_context)
-        intent = intent_result.get("intent", "diagnosis")
-        confidence = intent_result.get("confidence", "medium")
-        reasoning = intent_result.get("reasoning", "")
+                            # 输出结构化报告
+                            if result.structured_output:
+                                structured_data = result.structured_output.model_dump()
+                                yield f"event: structured\ndata: {json.dumps(structured_data)}\n\n"
 
-        yield f"event: intent\ndata: {json.dumps(intent_result)}\n\n"
-        yield f"event: thinking\ndata: {json.dumps({'step': 'master_done', 'message': f'✅ 意图识别完成: {intent} (置信度: {confidence})', 'detail': reasoning})}\n\n"
-
-        # ─── Step 2: Agent 切换 ───
-        agent_name_map = {
-            "diagnosis": "DiagnosisAgent 诊断专家",
-            "planning": "PlanningAgent 治疗规划",
-            "monitoring": "MonitoringAgent 随访监测",
-            "research": "ResearchAgent 医学研究",
-            "consultation": "Consultation 综合诊疗",
-            "general": "General 通用医疗",
-        }
-        # Escalation is now handled within the diagnosis pipeline — not a separate route
-        if intent == "escalation":
-            intent = "diagnosis"
-        agent_display = agent_name_map.get(intent, agent_name_map["general"])
-
-        yield f"event: agent_switch\ndata: {json.dumps({'agent': intent, 'agent_display': agent_display, 'message': f'🔄 正在切换到 {agent_display}...'})}\n\n"
-
-        # ─── Step 3: 专科 Agent 处理 + 流式输出 ───
-        async with async_session_maker() as db_stream:
-            llm = LLMService(provider=provider, platform=ctx.platform, db=db_stream)
-
-            # 根据意图构建专属 system prompt
-            system_prompts = {
-                "diagnosis": """You are DiagnosisAgent, an expert diagnostic AI physician.
-
-ROLE:
-- Analyze patient symptoms thoroughly
-- Consider differential diagnoses
-- Ask clarifying questions when needed
-- Flag emergency conditions immediately
-
-OUTPUT FORMAT:
-Use Markdown formatting:
-- **bold** for important medical terms
-- bullet lists for findings/suggestions
-- numbered lists for step-by-step advice
-- ### headers for sections
-
-Always include:
-1. Possible causes analysis
-2. Key questions to narrow down
-3. Self-care recommendations
-4. Red flags requiring immediate medical attention
-5. Disclaimer
-
-SAFETY: Never dismiss patient concerns. Flag emergencies.""",
-
-                "planning": """You are PlanningAgent, an expert treatment planning AI.
-
-ROLE:
-- Generate evidence-based treatment plans
-- Recommend medications with dosing when appropriate
-- Suggest lifestyle modifications
-- Plan follow-up schedule
-
-OUTPUT FORMAT:
-Use Markdown formatting with clear sections.""",
-
-                "monitoring": """You are MonitoringAgent, a patient follow-up AI.
-
-ROLE:
-- Analyze patient-reported outcomes
-- Detect deterioration or improvement trends
-- Generate alerts when thresholds are crossed
-
-OUTPUT FORMAT:
-Use Markdown formatting.""",
-
-                "research": """You are ResearchAgent, a medical research assistant.
-
-ROLE:
-- Synthesize medical knowledge into clear answers
-- Cite sources when possible
-- Distinguish evidence levels
-
-OUTPUT FORMAT:
-Use Markdown formatting.""",
-
-                "general": """You are MediCareAI-Agent, a helpful medical AI assistant.
-
-ROLE:
-- Provide accurate, evidence-based medical information
-- Be clear and compassionate
-- Always include appropriate disclaimers
-
-OUTPUT FORMAT:
-Use Markdown formatting for readability.""",
-            }
-
-            system_prompt = system_prompts.get(intent, system_prompts["general"])
-
-            # 添加患者上下文
-            messages: list[dict[str, str]] = [{"role": "user", "content": message}]
-            if patient_history:
-                messages.insert(0, {"role": "system", "content": f"Patient history context: {patient_history}"})
-
-            # 加载已上传的化验单解析结果到上下文
-            session_id: str | None = None
-            query_sid = request.query_params.get("session_id")
-            if query_sid:
-                import logging as _logmod
-                _log = _logmod.getLogger("debug.t3")
-                _log.info("[DEBUG-T3] route_stream: query_sid=%s", query_sid)
-                # Try DB lookup first (real UUID sessions)
-                try:
-                    _qs = await db.get(AgentSession, uuid.UUID(query_sid))
-                    if _qs and _qs.context:
-                        lab_reports = _qs.context.get("lab_reports", [])
-                        if lab_reports:
-                            _log.info("[DEBUG-T3] route_stream: DB lookup found %d reports", len(lab_reports))
-                            _inject_lab_context(messages, lab_reports)
-                        else:
-                            _log.info("[DEBUG-T3] route_stream: DB session exists but no lab_reports in context")
-                except (ValueError, Exception):
-                    _log.info("[DEBUG-T3] route_stream: DB lookup failed (non-UUID or missing)")
-                # Fallback: check in-memory bridge for frontend-generated session IDs
-                if not any("已上传的检查报告" in m.get("content", "") for m in messages):
-                    lab_reports = _session_lab_bridge.get(query_sid, [])
-                    if lab_reports:
-                        _log.info("[DEBUG-T3] route_stream: bridge found %d reports for key=%s", len(lab_reports), query_sid)
-                        _inject_lab_context(messages, lab_reports)
-                    else:
-                        _log.warning("[DEBUG-T3] route_stream: bridge EMPTY for key=%s, bridge_keys=%s", query_sid, list(_session_lab_bridge.keys()))
-
-            if intent == "diagnosis":
-                # ─── Interview phase: collect info before diagnosis ───
-                # Create a session to persist interview state (if not already loaded)
-                if not session_id:
-                    try:
-                        new_session = await master._create_session(
-                            user_id=uuid.UUID(actual_patient_id) if actual_patient_id else None,
-                            session_type=AgentSessionType.DIAGNOSIS,
-                            intent="diagnosis",
-                        )
-                        if new_session:
-                            session_id = str(new_session.id)
-                            # Carry over lab reports from bridge into the new session context
-                            if query_sid:
-                                # Store frontend session ID so interview_answer can find bridge data
-                                _nctx = dict(new_session.context or {})
-                                _nctx["_frontend_sid"] = query_sid
-                                bridge_reports = _session_lab_bridge.get(query_sid, [])
-                                if bridge_reports:
-                                    _nctx["lab_reports"] = bridge_reports
-                                    import logging as _log2
-                                    _log2.getLogger("debug.t3").info("[DEBUG-T3] route_stream: copied %d bridge reports to new session %s", len(bridge_reports), session_id)
-                                new_session.context = _nctx
-                                async with async_session_maker() as _bdb:
-                                    _bs = await _bdb.get(AgentSession, uuid.UUID(session_id))
-                                    if _bs:
-                                        _bs.context = _nctx
-                                        await _bdb.commit()
-                    except Exception:
-                        pass
-
-                diag_agent = DiagnosisAgent(provider=provider)
-
-                if session_id:
-                    try:
-                        questions, state, searches, action, reasoning = await diag_agent.interview(
-                            session_id=session_id,
-                            chief_complaint=message,
-                            patient_history=patient_history,
-                        )
-                        if searches:
-                            yield f"event: thinking\ndata: {json.dumps({'step': 'search', 'message': '🔍 后台搜索中，请先作答...'})}\n\n"
-                        if questions:
-                            yield f"event: interview_progress\ndata: {json.dumps({'asked_count': len(state.asked_questions), 'phase': '问诊中'})}\n\n"
-                            q_list = []
-                            for nq in questions:
-                                q_list.append({
-                                    "question_id": nq.question_id, "question": nq.question, "type": nq.type,
-                                    "options": nq.options, "hint": nq.hint, "allow_skip": nq.allow_skip,
-                                    "phase": nq.phase, "colloquial_phase": nq.colloquial_phase,
-                                })
-                            yield f"event: question\ndata: {json.dumps({'questions': q_list})}\n\n"
-                            yield f"event: complete\ndata: {json.dumps({'status': 'waiting_for_answer', 'session_id': session_id})}\n\n"
-                            return
-                        elif state.red_flags_detected:
-                            yield f"event: red_flags\ndata: {json.dumps({'red_flags': state.red_flags_detected, 'message': '检测到危险信号，建议立即就医'})}\n\n"
-                            # Do NOT return — proceed to diagnosis with red flags included
-
-                        # Redis lock first — prevent concurrent diagnoses
-                        from app.db.redis_client import get_redis
-                        redis_client = get_redis()
-                        lock_key = f"diag_lock:{session_id}"
-                        locked = await redis_client.set(lock_key, "1", nx=True, ex=300)
-                        if not locked:
-                            yield f"event: complete\ndata: {json.dumps({'status': 'already_diagnosed', 'session_id': session_id})}\n\n"
+                                report_md = _diagnosis_report_to_markdown(structured_data)
+                                for chunk in _chunk_text(report_md, chunk_size=80):
+                                    yield f"event: text\ndata: {json.dumps({'text': chunk})}\n\n"
+                            else:
+                                content = result.content if isinstance(result.content, str) else json.dumps(result.content, ensure_ascii=False)
+                                for chunk in _chunk_text(content, chunk_size=80):
+                                    yield f"event: text\ndata: {json.dumps({'text': chunk})}\n\n"
+                        except Exception as e:
+                            _err_msg = "\u8bca\u65ad\u5206\u6790\u5931\u8d25: " + str(e)
+                            yield f"event: error\ndata: {json.dumps({'error': _err_msg})}\n\n"
                             return
 
-                        yield f"event: thinking\ndata: {json.dumps({'step': 'diagnosis', 'message': '🧠 问诊信息充足，正在综合分析并搜索医学知识...'})}\n\n"
-
-                        workflow_result = await diag_agent.run_full_diagnosis_workflow(
-                            session_id=session_id,
-                            patient_id=actual_patient_id,
-                            patient_history=patient_history,
-                        )
-                        if workflow_result.tool_calls_used:
-                            for tc in workflow_result.tool_calls_used:
-                                tname = tc.get('tool', '?')
-                                yield f"event: tool_call\ndata: {json.dumps({'tool': tname, 'params': tc.get('arguments', {}), 'message': '🔍 正在执行 ' + tname + '...'})}\n\n"
-                                await asyncio.sleep(0.2)
-                                yield f"event: tool_result\ndata: {json.dumps({'tool': tname, 'result': tc.get('result', {}), 'message': '✅ ' + tname + ' 执行完成'})}\n\n"
-                        if workflow_result.structured_output:
-                            yield f"event: structured\ndata: {json.dumps(workflow_result.structured_output.model_dump())}\n\n"
-                            report_md = _diagnosis_report_to_markdown(workflow_result.structured_output.model_dump())
-                            for chunk in _chunk_text(report_md, chunk_size=80):
-                                yield f"event: text\ndata: {json.dumps({'text': chunk})}\n\n"
-
-                            # Plan C: Auto-create MedicalCase for registered users
-                            if actual_patient_id and session_id:
-                                try:
-                                    from app.models.medical_case import MedicalCase as MC, CaseStatus as CS
-                                    from sqlalchemy import select as _sel
-                                    existing = await db.execute(
-                                        _sel(MC).where(MC.source_session_id == uuid.UUID(session_id))
-                                    )
-                                    if not existing.scalar_one_or_none():
-                                        report = workflow_result.structured_output.model_dump()
-                                        chief = interview_data.get("chief_complaint", message) if 'interview_data' in dir() else message
-                                        mc = MC(
-                                            patient_id=uuid.UUID(actual_patient_id),
-                                            source_session_id=uuid.UUID(session_id),
-                                            title=f"AI Diagnosis: {report.get('primary_diagnosis', 'Unknown')[:50]}",
-                                            chief_complaint=chief,
-                                            ai_diagnosis_summary=report.get('primary_diagnosis', '')[:500],
-                                            severity=report.get('severity', 'unknown'),
-                                            is_emergency=(report.get('severity') == 'emergency'),
-                                            status=CS.PENDING_REVIEW,
-                                        )
-                                        db.add(mc)
-                                        await db.commit()
-                                except Exception:
-                                    pass
-                        else:
-                            content = workflow_result.content if isinstance(workflow_result.content, str) else ''
-                            for chunk in _chunk_text(content, chunk_size=80):
-                                yield f"event: text\ndata: {json.dumps({'text': chunk})}\n\n"
-                        yield f"event: complete\ndata: {json.dumps({'message': '✅ 响应完成', 'session_id': session_id})}\n\n"
-                        return
-                    except Exception:
-                        # Interview failed — fall through to direct diagnosis
-                        pass
-
-                _msg_start = "🧠 DiagnosisAgent 正在启动真实诊断分析..."
-                yield f"event: thinking\ndata: {json.dumps({'step': 'diagnosis', 'message': _msg_start})}\n\n"
-
-                try:
-                    result = await diag_agent.analyze(
-                        symptoms=message,
-                        patient_id=actual_patient_id,
-                        patient_history=patient_history,
-                        session_id=session_id,
-                    )
-
-                    # 流式展示真实工具调用记录
-                    if result.tool_calls_used:
-                        for tc in result.tool_calls_used:
-                            tool_name = tc.get("tool", "unknown")
-                            args = tc.get("arguments", {})
-                            _tc_msg = "\ud83d\udd0d \u6b63\u5728\u6267\u884c " + tool_name + "..."
-                            yield f"event: tool_call\ndata: {json.dumps({'tool': tool_name, 'params': args, 'message': _tc_msg})}\n\n"
-                            await asyncio.sleep(0.2)
-                            result_data = tc.get("result", {})
-                            _tr_msg = "\u2705 " + tool_name + " \u6267\u884c\u5b8c\u6210"
-                            yield f"event: tool_result\ndata: {json.dumps({'tool': tool_name, 'result': result_data, 'message': _tr_msg})}\n\n"
-
-                    _msg_analyze = "\ud83e\udde0 DiagnosisAgent \u6b63\u5728\u7efc\u5408\u5206\u6790\u5e76\u751f\u6210\u7ed3\u6784\u5316\u62a5\u544a..."
-                    yield f"event: thinking\ndata: {json.dumps({'step': 'diagnosis', 'message': _msg_analyze})}\n\n"
-
-                    # 输出结构化报告
-                    if result.structured_output:
-                        structured_data = result.structured_output.model_dump()
-                        yield f"event: structured\ndata: {json.dumps(structured_data)}\n\n"
-
-                        report_md = _diagnosis_report_to_markdown(structured_data)
-                        for chunk in _chunk_text(report_md, chunk_size=80):
-                            yield f"event: text\ndata: {json.dumps({'text': chunk})}\n\n"
                     else:
-                        content = result.content if isinstance(result.content, str) else json.dumps(result.content, ensure_ascii=False)
-                        for chunk in _chunk_text(content, chunk_size=80):
-                            yield f"event: text\ndata: {json.dumps({'text': chunk})}\n\n"
-                except Exception as e:
-                    _err_msg = "\u8bca\u65ad\u5206\u6790\u5931\u8d25: " + str(e)
-                    yield f"event: error\ndata: {json.dumps({'error': _err_msg})}\n\n"
-                    return
+                        # 其他意图走通用 LLM 流
+                        try:
+                            async for chunk in llm.chat_stream(
+                                messages=messages,
+                                system_prompt=system_prompt,
+                                max_tokens=2048,
+                            ):
+                                yield f"event: text\ndata: {json.dumps({'text': chunk})}\n\n"
+                        except Exception as e:
+                            yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+                            return
 
-            else:
-                # 其他意图走通用 LLM 流
-                try:
-                    async for chunk in llm.chat_stream(
-                        messages=messages,
-                        system_prompt=system_prompt,
-                        max_tokens=2048,
-                    ):
-                        yield f"event: text\ndata: {json.dumps({'text': chunk})}\n\n"
-                except Exception as e:
-                    yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
-                    return
+                yield f"event: complete\ndata: {json.dumps({'message': '✅ 响应完成'})}\n\n"
 
-        yield f"event: complete\ndata: {json.dumps({'message': '✅ 响应完成'})}\n\n"
-
+        except Exception as e:
+            import traceback
+            import logging as _logmod
+            _log = _logmod.getLogger("agents")
+            _log.error("[STREAM-FATAL] error=%s\n%s", e, traceback.format_exc())
+            yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
@@ -1165,129 +1172,136 @@ async def route_stream_continue(
         _answer = request.query_params.get("answer") or "无"
 
     async def event_generator():
-        # Look up the session
-        stmt = select(AgentSession).where(AgentSession.id == uuid.UUID(session_id))
-        result = await db.execute(stmt)
-        session = result.scalar_one_or_none()
-
-        if not session:
-            yield f"event: error\ndata: {json.dumps({'error': 'Session not found'})}\n\n"
-            return
-
-        # If diagnosis is already in progress, skip — avoid snapshot race
         try:
-            from app.db.redis_client import get_redis
-            _r = get_redis()
-            if await _r.exists(f"diag_lock:{session_id}"):
-                yield f"event: complete\ndata: {json.dumps({'status': 'diagnosis_in_progress', 'session_id': session_id})}\n\n"
-                return
-        except Exception:
-            pass
+                # Look up the session
+                stmt = select(AgentSession).where(AgentSession.id == uuid.UUID(session_id))
+                result = await db.execute(stmt)
+                session = result.scalar_one_or_none()
 
-        diag_agent = DiagnosisAgent(provider=None)
+                if not session:
+                    yield f"event: error\ndata: {json.dumps({'error': 'Session not found'})}\n\n"
+                    return
 
-        yield f"event: thinking\ndata: {json.dumps({'step': 'processing', 'message': '🧠 正在分析您的回答...'})}\n\n"
+                # If diagnosis is already in progress, skip — avoid snapshot race
+                try:
+                    from app.db.redis_client import get_redis
+                    _r = get_redis()
+                    if await _r.exists(f"diag_lock:{session_id}"):
+                        yield f"event: complete\ndata: {json.dumps({'status': 'diagnosis_in_progress', 'session_id': session_id})}\n\n"
+                        return
+                except Exception:
+                    pass
 
-        try:
-            import logging as _lmod2
-            questions, state, searches, action, reasoning = await diag_agent.interview_answer(
-                session_id=session_id,
-                question_id=question_id,
-                answer=_answer,
-            )
-            _lmod2.getLogger("debug.continue").info("[DEBUG-CONT] action=%s questions=%d is_sufficient=%s phase=%s red_flags=%d",
-                       action, len(questions), state.is_sufficient, state.phase, len(state.red_flags_detected))
+                diag_agent = DiagnosisAgent(provider=None)
+
+                yield f"event: thinking\ndata: {json.dumps({'step': 'processing', 'message': '🧠 正在分析您的回答...'})}\n\n"
+
+                try:
+                    import logging as _lmod2
+                    questions, state, searches, action, reasoning = await diag_agent.interview_answer(
+                        session_id=session_id,
+                        question_id=question_id,
+                        answer=_answer,
+                    )
+                    _lmod2.getLogger("debug.continue").info("[DEBUG-CONT] action=%s questions=%d is_sufficient=%s phase=%s red_flags=%d",
+                               action, len(questions), state.is_sufficient, state.phase, len(state.red_flags_detected))
+                except Exception as e:
+                    import logging as _lmod
+                    _lmod.getLogger("debug.continue").error("[DEBUG-CONT] interview_answer failed: %s", e)
+                    yield f"event: error\ndata: {json.dumps({'error': f'Interview error: {e}'})}\n\n"
+                    return
+
+                # Interview already completed (phase=completed, regeneration exhausted)
+                if action == "completed":
+                    yield f"event: complete\ndata: {json.dumps({'status': 'already_diagnosed', 'session_id': session_id})}\n\n"
+                    return
+
+                if searches:
+                    yield f"event: thinking\ndata: {json.dumps({'step': 'search', 'message': '🔍 后台搜索中...'})}\n\n"
+
+                if questions:
+                    yield f"event: interview_progress\ndata: {json.dumps({'asked_count': len(state.asked_questions)})}\n\n"
+                    q_list = [{"question_id": nq.question_id, "question": nq.question, "type": nq.type, "options": nq.options, "hint": nq.hint, "allow_skip": nq.allow_skip, "phase": nq.phase, "colloquial_phase": nq.colloquial_phase} for nq in questions]
+                    yield f"event: question\ndata: {json.dumps({'questions': q_list})}\n\n"
+                    yield f"event: complete\ndata: {json.dumps({'status': 'waiting_for_answer', 'session_id': session_id})}\n\n"
+                    return
+
+                # Check for red flags
+                if state.red_flags_detected:
+                    yield f"event: red_flags\ndata: {json.dumps({'red_flags': state.red_flags_detected, 'message': '检测到危险信号，建议立即就医'})}\n\n"
+
+                if not state.is_sufficient:
+                    import logging as _lmod3
+                    _lmod3.getLogger("debug.continue").warning("[DEBUG-CONT] EMPTY CARDS — is_sufficient=False, no questions to show (DEADLOCK)")
+                    yield f"event: complete\ndata: {json.dumps({'status': 'waiting_for_answer', 'session_id': session_id})}\n\n"
+                    await asyncio.sleep(0.1)
+                    return
+
+                # Interview complete — proceed to diagnosis using structured summary
+                _msg_start = "🧠 问诊完成，正在整理问诊信息..."
+                yield f"event: thinking\ndata: {json.dumps({'step': 'diagnosis', 'message': _msg_start})}\n\n"
+
+                # Redis lock to prevent concurrent diagnoses
+                try:
+                    from app.db.redis_client import get_redis
+                    redis_client = get_redis()
+                    lock_key = f"diag_lock:{session_id}"
+                    locked = await redis_client.set(lock_key, "1", nx=True, ex=60)
+                    if not locked:
+                        yield f"event: complete\ndata: {json.dumps({'status': 'already_diagnosed', 'session_id': session_id})}\n\n"
+                        return
+                except Exception as e:
+                    import logging
+                    logging.getLogger("agents").error("Failed to acquire Redis lock: %s", e)
+
+                try:
+                    yield f"event: tool_call\ndata: {json.dumps({'tool': 'search_medical_knowledge', 'params': {'query': '基于问诊摘要的医学搜索'}, 'message': '🔍 正在搜索医学知识库和最新文献...'})}\n\n"
+
+                    result = await diag_agent.run_full_diagnosis_workflow(
+                        session_id=session_id,
+                        patient_id=str(session.user_id) if session.user_id else None,
+                    )
+
+                    if result.tool_calls_used:
+                        for tc in result.tool_calls_used:
+                            tool_name = tc.get("tool", "unknown")
+                            args = tc.get("arguments", {})
+                            _tc_msg = f"🔍 正在执行 {tool_name}..."
+                            yield f"event: tool_call\ndata: {json.dumps({'tool': tool_name, 'params': args, 'message': _tc_msg})}\n\n"
+                            await asyncio.sleep(0.2)
+                            result_data = tc.get("result", {})
+                            _tr_msg = f"✅ {tool_name} 执行完成"
+                            yield f"event: tool_result\ndata: {json.dumps({'tool': tool_name, 'result': result_data, 'message': _tr_msg})}\n\n"
+
+                    _msg_analyze = "🧠 正在综合分析并生成诊断报告..."
+                    yield f"event: thinking\ndata: {json.dumps({'step': 'diagnosis', 'message': _msg_analyze})}\n\n"
+
+                    if result.structured_output:
+                        structured_data = result.structured_output.model_dump()
+                        yield f"event: structured\ndata: {json.dumps(structured_data)}\n\n"
+
+                        report_md = _diagnosis_report_to_markdown(structured_data)
+                        for chunk in _chunk_text(report_md, chunk_size=80):
+                            yield f"event: text\ndata: {json.dumps({'text': chunk})}\n\n"
+                    else:
+                        content = result.content if isinstance(result.content, str) else json.dumps(result.content, ensure_ascii=False)
+                        for chunk in _chunk_text(content, chunk_size=80):
+                            yield f"event: text\ndata: {json.dumps({'text': chunk})}\n\n"
+                except Exception as e:
+                    import traceback, logging as _logmod
+                    _log = _logmod.getLogger("agents")
+                    _log.error("CONTINUE_DIAG_ERROR: %s\n%s", e, traceback.format_exc())
+                    _err_msg = f"诊断分析失败: {e}"
+                    yield f"event: error\ndata: {json.dumps({'error': _err_msg})}\n\n"
+
+                yield f"event: complete\ndata: {json.dumps({'message': '✅ 响应完成', 'session_id': session_id})}\n\n"
+
         except Exception as e:
-            import logging as _lmod
-            _lmod.getLogger("debug.continue").error("[DEBUG-CONT] interview_answer failed: %s", e)
-            yield f"event: error\ndata: {json.dumps({'error': f'Interview error: {e}'})}\n\n"
-            return
-
-        # Interview already completed (phase=completed, regeneration exhausted)
-        if action == "completed":
-            yield f"event: complete\ndata: {json.dumps({'status': 'already_diagnosed', 'session_id': session_id})}\n\n"
-            return
-
-        if searches:
-            yield f"event: thinking\ndata: {json.dumps({'step': 'search', 'message': '🔍 后台搜索中...'})}\n\n"
-
-        if questions:
-            yield f"event: interview_progress\ndata: {json.dumps({'asked_count': len(state.asked_questions)})}\n\n"
-            q_list = [{"question_id": nq.question_id, "question": nq.question, "type": nq.type, "options": nq.options, "hint": nq.hint, "allow_skip": nq.allow_skip, "phase": nq.phase, "colloquial_phase": nq.colloquial_phase} for nq in questions]
-            yield f"event: question\ndata: {json.dumps({'questions': q_list})}\n\n"
-            yield f"event: complete\ndata: {json.dumps({'status': 'waiting_for_answer', 'session_id': session_id})}\n\n"
-            return
-
-        # Check for red flags
-        if state.red_flags_detected:
-            yield f"event: red_flags\ndata: {json.dumps({'red_flags': state.red_flags_detected, 'message': '检测到危险信号，建议立即就医'})}\n\n"
-
-        if not state.is_sufficient:
-            import logging as _lmod3
-            _lmod3.getLogger("debug.continue").warning("[DEBUG-CONT] EMPTY CARDS — is_sufficient=False, no questions to show (DEADLOCK)")
-            yield f"event: complete\ndata: {json.dumps({'status': 'waiting_for_answer', 'session_id': session_id})}\n\n"
-            await asyncio.sleep(0.1)
-            return
-
-        # Interview complete — proceed to diagnosis using structured summary
-        _msg_start = "🧠 问诊完成，正在整理问诊信息..."
-        yield f"event: thinking\ndata: {json.dumps({'step': 'diagnosis', 'message': _msg_start})}\n\n"
-
-        # Redis lock to prevent concurrent diagnoses
-        try:
-            from app.db.redis_client import get_redis
-            redis_client = get_redis()
-            lock_key = f"diag_lock:{session_id}"
-            locked = await redis_client.set(lock_key, "1", nx=True, ex=60)
-            if not locked:
-                yield f"event: complete\ndata: {json.dumps({'status': 'already_diagnosed', 'session_id': session_id})}\n\n"
-                return
-        except Exception as e:
-            import logging
-            logging.getLogger("agents").error("Failed to acquire Redis lock: %s", e)
-
-        try:
-            yield f"event: tool_call\ndata: {json.dumps({'tool': 'search_medical_knowledge', 'params': {'query': '基于问诊摘要的医学搜索'}, 'message': '🔍 正在搜索医学知识库和最新文献...'})}\n\n"
-            
-            result = await diag_agent.run_full_diagnosis_workflow(
-                session_id=session_id,
-                patient_id=str(session.user_id) if session.user_id else None,
-            )
-
-            if result.tool_calls_used:
-                for tc in result.tool_calls_used:
-                    tool_name = tc.get("tool", "unknown")
-                    args = tc.get("arguments", {})
-                    _tc_msg = f"🔍 正在执行 {tool_name}..."
-                    yield f"event: tool_call\ndata: {json.dumps({'tool': tool_name, 'params': args, 'message': _tc_msg})}\n\n"
-                    await asyncio.sleep(0.2)
-                    result_data = tc.get("result", {})
-                    _tr_msg = f"✅ {tool_name} 执行完成"
-                    yield f"event: tool_result\ndata: {json.dumps({'tool': tool_name, 'result': result_data, 'message': _tr_msg})}\n\n"
-
-            _msg_analyze = "🧠 正在综合分析并生成诊断报告..."
-            yield f"event: thinking\ndata: {json.dumps({'step': 'diagnosis', 'message': _msg_analyze})}\n\n"
-
-            if result.structured_output:
-                structured_data = result.structured_output.model_dump()
-                yield f"event: structured\ndata: {json.dumps(structured_data)}\n\n"
-
-                report_md = _diagnosis_report_to_markdown(structured_data)
-                for chunk in _chunk_text(report_md, chunk_size=80):
-                    yield f"event: text\ndata: {json.dumps({'text': chunk})}\n\n"
-            else:
-                content = result.content if isinstance(result.content, str) else json.dumps(result.content, ensure_ascii=False)
-                for chunk in _chunk_text(content, chunk_size=80):
-                    yield f"event: text\ndata: {json.dumps({'text': chunk})}\n\n"
-        except Exception as e:
-            import traceback, logging as _logmod
+            import traceback
+            import logging as _logmod
             _log = _logmod.getLogger("agents")
-            _log.error("CONTINUE_DIAG_ERROR: %s\n%s", e, traceback.format_exc())
-            _err_msg = f"诊断分析失败: {e}"
-            yield f"event: error\ndata: {json.dumps({'error': _err_msg})}\n\n"
-
-        yield f"event: complete\ndata: {json.dumps({'message': '✅ 响应完成', 'session_id': session_id})}\n\n"
-
+            _log.error("[CONTINUE-FATAL] error=%s\n%s", e, traceback.format_exc())
+            yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
