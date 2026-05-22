@@ -620,8 +620,8 @@ export default function ChatPage() {
               case 'complete': {
                 const status = event.data?.status as string;
                 if (status === 'waiting_for_answer') {
-                  console.log("[DEBUG-CARD] complete waiting_for_answer:", { sid, hasPending: !!pendingSessionRef.current });
                   const sid = event.data?.session_id as string;
+                  console.log("[DEBUG-CARD] complete waiting_for_answer:", { sid, hasPending: !!pendingSessionRef.current });
                   if (sid) {
                     if (!pendingSessionRef.current) {
                       pendingSessionRef.current = { sessionId: sid, questionId: '' };
