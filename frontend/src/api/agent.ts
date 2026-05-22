@@ -127,6 +127,67 @@ export async function chat(
 }
 
 /**
+ * 通用 SSE ReadableStream 解析器。
+ * 将 fetch response.body ReadableStream 解析为 SSE 事件流。
+ * 支持 event: / data: 格式，每个完整事件通过 onEvent 回调抛出。
+ *
+ * @param reader   - fetch response.body.getReader() 的返回值
+ * @param onEvent  - 事件回调，每个完整 SSE 事件调用一次
+ * @param resolve  - Promise resolve，流正常结束时调用
+ * @param reject   - Promise reject，流异常或收到 error 事件时调用
+ * @param errorKey - error 事件 JSON 中的错误消息字段名（默认 "message"）
+ */
+async function parseSSEStream(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  onEvent: (event: SSEEvent) => void,
+  resolve: () => void,
+  reject: (reason: Error) => void,
+  errorKey: string = 'message',
+): Promise<void> {
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      while (buffer.includes('\n\n')) {
+        const idx = buffer.indexOf('\n\n');
+        const raw = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+
+        const lines = raw.split('\n');
+        let eventName = '';
+        let dataStr = '';
+        for (const line of lines) {
+          if (line.startsWith('event: ')) eventName = line.slice(7).trim();
+          else if (line.startsWith('data: ')) dataStr = line.slice(6);
+        }
+        if (!eventName || !dataStr) continue;
+
+        try {
+          const parsed = JSON.parse(dataStr);
+          onEvent({ event: eventName as SSEEvent['event'], data: parsed });
+          if (eventName === 'complete') { resolve(); return; }
+          if (eventName === 'error') {
+            const errMsg = parsed[errorKey] || parsed.error || parsed.message || 'SSE error';
+            reject(new Error(errMsg));
+            return;
+          }
+        } catch {
+          onEvent({ event: eventName as SSEEvent['event'], data: { raw: dataStr } });
+        }
+      }
+    }
+    resolve();
+  } catch (e) {
+    reject(e instanceof Error ? e : new Error(String(e)));
+  }
+}
+
+/**
  * 流式对话 (SSE)
  * GET /api/v1/agents/route/stream
  * 事件类型: intent / agent_switch / thinking / tool_call / tool_result / text / error / complete
@@ -221,44 +282,8 @@ export function streamDiagnoseContinue(
     const reader = response.body?.getReader();
     if (!reader) { reject(new Error('No response body')); return; }
 
-    const decoder = new TextDecoder();
-    let buffer = '';
-    const eventTypes = ['intent', 'agent_switch', 'thinking', 'tool_call', 'tool_result', 'structured', 'text', 'question', 'interview_progress', 'red_flags', 'complete', 'error'];
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-
-        while (buffer.includes('\n\n')) {
-          const idx = buffer.indexOf('\n\n');
-          const raw = buffer.slice(0, idx);
-          buffer = buffer.slice(idx + 2);
-
-          const lines = raw.split('\n');
-          let eventName = '';
-          let dataStr = '';
-          for (const line of lines) {
-            if (line.startsWith('event: ')) eventName = line.slice(7).trim();
-            else if (line.startsWith('data: ')) dataStr = line.slice(6);
-          }
-          if (!eventName || !dataStr) continue;
-
-          try {
-            const parsed = JSON.parse(dataStr);
-            onEvent({ event: eventName as SSEEvent['event'], data: parsed });
-            if (eventName === 'complete') { resolve(); return; }
-            if (eventName === 'error') { reject(new Error(parsed.message || 'SSE error')); return; }
-          } catch {
-            onEvent({ event: eventName as SSEEvent['event'], data: { raw: dataStr } });
-          }
-        }
-      }
-    } catch (e) {
-      reject(e);
-    }
-    reader.cancel().catch(() => {});
+    parseSSEStream(reader, onEvent, resolve, reject, 'message')
+      .finally(() => reader.cancel().catch(() => {}));
   });
 }
 
@@ -330,41 +355,7 @@ export function streamChat(
         const reader = response.body?.getReader();
         if (!reader) { reject(new Error('No response body')); return; }
 
-        const decoder = new TextDecoder();
-        let buffer = '';
-        const eventTypes = ['text', 'complete', 'error'];
-
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-
-            while (buffer.includes('\n\n')) {
-              const idx = buffer.indexOf('\n\n');
-              const raw = buffer.slice(0, idx);
-              buffer = buffer.slice(idx + 2);
-
-              const lines = raw.split('\n');
-              let eventName = '';
-              let dataStr = '';
-              for (const line of lines) {
-                if (line.startsWith('event: ')) eventName = line.slice(7).trim();
-                else if (line.startsWith('data: ')) dataStr = line.slice(6);
-              }
-              if (!eventName || !dataStr) continue;
-
-              try {
-                const parsed = JSON.parse(dataStr);
-                onEvent({ event: eventName as SSEEvent['event'], data: parsed });
-                if (eventName === 'complete') { resolve(); return; }
-                if (eventName === 'error') { reject(new Error(parsed.error || 'Chat error')); return; }
-              } catch {
-                onEvent({ event: eventName as SSEEvent['event'], data: { raw: dataStr } });
-              }
-            }
-          }
-        } catch (e) { reject(e); }
+        parseSSEStream(reader, onEvent, resolve, reject, 'error');
       })
       .catch(reject);
   });
