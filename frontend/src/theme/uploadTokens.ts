@@ -4,5 +4,5 @@ export const uploadTokens = {
   failed:     { gradient: 'linear-gradient(135deg, #FFF3E0, #FBE9E7)', border: '#FFAB91' },
   persistent: { gradient: 'linear-gradient(135deg, #FFEBEE, #FCE4EC)', border: '#EF9A9A' },
   idle:       { bg: '#F3F8FD', border: '#BBDEFB' },
-  radius: 12,
+  radius: 8,
 } as const;
