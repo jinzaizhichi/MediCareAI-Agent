@@ -687,13 +687,18 @@ export default function ChatPage() {
     async (file: File) => {
       // Ensure guest token exists before upload (same auth guard as handleSend)
       if (!getToken()) {
+        console.log('[DEBUG-AUTH] handleFileUpload: no access_token, creating guest session...');
         localStorage.removeItem('guest_token');
         localStorage.removeItem('guest_status');
         try {
-          await agentApi.createGuestSession();
-        } catch {
+          const guestToken = await agentApi.createGuestSession();
+          console.log('[DEBUG-AUTH] handleFileUpload: guest session created, token length:', guestToken?.length);
+        } catch (e) {
+          console.error('[DEBUG-AUTH] handleFileUpload: createGuestSession failed:', e);
           // Continue — better than blocking the upload
         }
+      } else {
+        console.log('[DEBUG-AUTH] handleFileUpload: using existing access_token');
       }
 
       const uploadId = generateId();
@@ -716,6 +721,7 @@ export default function ChatPage() {
       ]);
 
       try {
+        console.log("[DEBUG-AUTH] about to upload, guest_token:", localStorage.getItem("guest_token")?.substring(0, 20) + "...", "access_token:", localStorage.getItem("access_token")?.substring(0, 20) + "...");
         const uploadRes = await uploadDocument(file);
         const fileId = uploadRes.file_id;
 
