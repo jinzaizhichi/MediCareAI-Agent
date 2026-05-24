@@ -685,6 +685,17 @@ export default function ChatPage() {
 
   const handleFileUpload = useCallback(
     async (file: File) => {
+      // Ensure guest token exists before upload (same auth guard as handleSend)
+      if (!getToken()) {
+        localStorage.removeItem('guest_token');
+        localStorage.removeItem('guest_status');
+        try {
+          await agentApi.createGuestSession();
+        } catch {
+          // Continue — better than blocking the upload
+        }
+      }
+
       const uploadId = generateId();
 
       setActiveUploads((prev) => [
