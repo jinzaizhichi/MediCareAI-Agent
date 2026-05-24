@@ -63,13 +63,31 @@ export default function ChatPage() {
   const uploadBannerDismissed = useRef(false);
   const failedFileAttempts = useRef<Map<string, number>>(new Map());
 
-  // 初始化：检查认证状态，未登录时自动创建访客 session
+  // 初始化：统一认证入口 — 页面加载时决定 token 策略
   useEffect(() => {
     if (didInit.current) return;
     didInit.current = true;
 
     const initAuth = async () => {
-      if (getToken()) return;
+      const token = getToken();
+      if (token) {
+        // Has access_token — validate it against /auth/me
+        try {
+          const res = await fetch('/api/v1/auth/me', {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (res.ok) {
+            return; // Token valid — registered user, nothing to do
+          }
+        } catch {
+          // Network error — keep access_token and hope it still works
+          return;
+        }
+        // Token invalid/expired — clear and fall through to guest mode
+        localStorage.removeItem('access_token');
+      }
+
+      // Guest mode — verify stored guest token or create new one
       const stored = agentApi.getGuestStatus();
       if (stored) {
         try {
@@ -82,7 +100,6 @@ export default function ChatPage() {
           // Token invalid — will create new one below
         }
       }
-      // Clear any stale token before creating new session
       agentApi.clearGuestToken();
       try {
         await agentApi.createGuestSession();
@@ -160,7 +177,6 @@ export default function ChatPage() {
 
       if (chatMode === 'idle') {
         setChatMode('consulting');
-        console.log('[DEBUG-CARD] chatMode → consulting');
       }
 
       if (!getToken()) {
@@ -346,7 +362,6 @@ export default function ChatPage() {
               case 'question': {
                 const q = event.data as unknown as { question_id: string; question: string; type: string; options?: string[]; hint?: string; allow_skip?: boolean; colloquial_phase?: string; phase?: string; questions?: InterviewQuestion[] };
                 const qs: InterviewQuestion[] = 'questions' in event.data ? (event.data as { questions: InterviewQuestion[] }).questions : [q as InterviewQuestion];
-                  console.log("[DEBUG-CARD] handleSend question:", { count: qs.length, ids: qs.map(x => x.question_id), chatMode });
                 // sessionId will be set when 'complete' event with status='waiting_for_answer' arrives
                 // For now, just set the questionId; sessionId is updated in the 'complete' handler
                 if (!pendingSessionRef.current) {
@@ -407,7 +422,6 @@ export default function ChatPage() {
                 if (sid) backendSessionIdRef.current = sid;
                 const status = event.data?.status as string;
                 if (status === 'waiting_for_answer') {
-                  console.log("[DEBUG-CARD] complete waiting_for_answer:", { sid, hasPending: !!pendingSessionRef.current });
                   if (sid) {
                     if (!pendingSessionRef.current) {
                       pendingSessionRef.current = { sessionId: sid, questionId: '' };
@@ -561,7 +575,6 @@ export default function ChatPage() {
               case 'question': {
                 const q = event.data as unknown as { question_id: string; question: string; type: string; options?: string[]; hint?: string; allow_skip?: boolean; colloquial_phase?: string; phase?: string; questions?: InterviewQuestion[] };
                 const qs: InterviewQuestion[] = 'questions' in event.data ? (event.data as { questions: InterviewQuestion[] }).questions : [q as InterviewQuestion];
-                  console.log("[DEBUG-CARD] handleInterviewAnswer question:", { count: qs.length, ids: qs.map(x => x.question_id) });
                 // sessionId will be set when 'complete' event with status='waiting_for_answer' arrives
                 // For now, just set the questionId; sessionId is updated in the 'complete' handler
                 if (!pendingSessionRef.current) {
@@ -621,7 +634,6 @@ export default function ChatPage() {
                 const status = event.data?.status as string;
                 if (status === 'waiting_for_answer') {
                   const sid = event.data?.session_id as string;
-                  console.log("[DEBUG-CARD] complete waiting_for_answer:", { sid, hasPending: !!pendingSessionRef.current });
                   if (sid) {
                     if (!pendingSessionRef.current) {
                       pendingSessionRef.current = { sessionId: sid, questionId: '' };
@@ -685,19 +697,13 @@ export default function ChatPage() {
 
   const handleFileUpload = useCallback(
     async (file: File) => {
-      // Always ensure a guest token exists for upload auth.
-      // We check guest_token specifically (not access_token) because
-      // documents/upload uses strict auth and stale access_tokens cause 401.
-      // A fresh guest token guarantees at least one valid auth mechanism.
-      if (!localStorage.getItem('guest_token')) {
-        console.log('[DEBUG-AUTH] handleFileUpload: no guest_token, creating...');
+      if (!getToken()) {
         localStorage.removeItem('guest_token');
         localStorage.removeItem('guest_status');
         try {
           await agentApi.createGuestSession();
-          console.log('[DEBUG-AUTH] handleFileUpload: guest session created');
-        } catch (e) {
-          console.error('[DEBUG-AUTH] handleFileUpload: createGuestSession failed:', e);
+        } catch {
+          // Continue — better than blocking the upload
         }
       }
 
@@ -721,7 +727,6 @@ export default function ChatPage() {
       ]);
 
       try {
-        console.log("[DEBUG-AUTH] about to upload, guest_token:", localStorage.getItem("guest_token")?.substring(0, 20) + "...", "access_token:", localStorage.getItem("access_token")?.substring(0, 20) + "...");
         const uploadRes = await uploadDocument(file);
         const fileId = uploadRes.file_id;
 
