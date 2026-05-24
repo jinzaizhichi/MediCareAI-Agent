@@ -35,7 +35,6 @@ export default function LabReportCard({ report, onConfirm, confirmed }: Props) {
     <Paper
       elevation={1}
       sx={{
-        borderRadius: 2,
         border: '1px solid',
         borderColor: hasError ? '#FFCDD2' : needsReview ? '#FFF3E0' : '#C8E6C9',
         mb: 1.5,
