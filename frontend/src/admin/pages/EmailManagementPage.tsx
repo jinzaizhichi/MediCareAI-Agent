@@ -77,6 +77,21 @@ export default function EmailManagementPage() {
   const [logsLoading, setLogsLoading] = useState(false);
 
   const [presets, setPresets] = useState<EmailProviderPreset[]>([]);
+  const [selectedPreset, setSelectedPreset] = useState<EmailProviderPreset | null>(null);
+
+  const handlePresetSelect = (presetId: string) => {
+    const preset = presets.find((p) => p.id === presetId) || null;
+    setSelectedPreset(preset);
+    if (preset && preset.id !== 'custom') {
+      setConfigForm((f) => ({
+        ...f,
+        smtp_host: preset.smtp.host,
+        smtp_port: preset.smtp.port,
+        smtp_security: preset.smtp.security,
+        smtp_from_email: f.smtp_user || f.smtp_from_email,
+      }));
+    }
+  };
 
   const showError = (msg: string) => { setError(msg); setTimeout(() => setError(null), 5000); };
   const showSuccess = (msg: string) => { setSuccess(msg); setTimeout(() => setSuccess(null), 5000); };
@@ -122,6 +137,7 @@ export default function EmailManagementPage() {
   useEffect(() => { if (tab === 3) fetchPresets(); }, [tab, fetchPresets]);
 
   const openConfigDialog = (cfg?: EmailConfig) => {
+    fetchPresets();
     if (cfg) {
       setEditingConfig(cfg);
       setConfigForm({
@@ -139,6 +155,7 @@ export default function EmailManagementPage() {
       });
     }
     setConfigDialogOpen(true);
+    setSelectedPreset(null);
   };
 
   const handleSaveConfig = async () => {
@@ -407,20 +424,94 @@ export default function EmailManagementPage() {
         <DialogTitle>{editingConfig ? '编辑 SMTP 配置' : '新增 SMTP 配置'}</DialogTitle>
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
-            <TextField label="SMTP 服务器地址" fullWidth value={configForm.smtp_host} onChange={(e) => setConfigForm({ ...configForm, smtp_host: e.target.value })} />
-            <TextField label="端口" type="number" fullWidth value={configForm.smtp_port} onChange={(e) => setConfigForm({ ...configForm, smtp_port: parseInt(e.target.value) || 0 })} />
-            <TextField label="用户名" fullWidth value={configForm.smtp_user} onChange={(e) => setConfigForm({ ...configForm, smtp_user: e.target.value })} />
-            <TextField label={editingConfig ? '密码 (留空则不更新)' : '密码'} type="password" fullWidth value={configForm.smtp_password} onChange={(e) => setConfigForm({ ...configForm, smtp_password: e.target.value })} />
-            <TextField label="发件人邮箱" fullWidth value={configForm.smtp_from_email} onChange={(e) => setConfigForm({ ...configForm, smtp_from_email: e.target.value })} />
-            <TextField label="发件人名称" fullWidth value={configForm.smtp_from_name} onChange={(e) => setConfigForm({ ...configForm, smtp_from_name: e.target.value })} />
-            <FormControl fullWidth>
-              <InputLabel>加密方式</InputLabel>
-              <Select value={configForm.smtp_security} label="加密方式" onChange={(e) => setConfigForm({ ...configForm, smtp_security: e.target.value as SmtpSecurity })}>
-                <MenuItem value="starttls">STARTTLS</MenuItem>
-                <MenuItem value="ssl">SSL/TLS</MenuItem>
-                <MenuItem value="none">无加密</MenuItem>
-              </Select>
-            </FormControl>
+            {!editingConfig && (
+              <FormControl fullWidth>
+                <InputLabel>预设提供商</InputLabel>
+                <Select
+                  value={selectedPreset?.id || ''}
+                  label="预设提供商"
+                  onChange={(e) => handlePresetSelect(e.target.value)}
+                >
+                  <MenuItem value="">请选择...</MenuItem>
+                  {presets.map((p) => (
+                    <MenuItem key={p.id} value={p.id}>
+                      {p.icon} {p.name} — {p.description}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            )}
+
+            {selectedPreset && selectedPreset.id !== 'custom' && (
+              <Alert severity="info" sx={{ fontSize: '0.85rem' }}>
+                {selectedPreset.help_text}
+                {selectedPreset.help_link && (
+                  <> <MuiLink href={selectedPreset.help_link} target="_blank">查看官方帮助 →</MuiLink></>
+                )}
+              </Alert>
+            )}
+
+            <TextField
+              label="邮箱账号"
+              fullWidth
+              value={configForm.smtp_user}
+              onChange={(e) => {
+                const val = e.target.value;
+                setConfigForm((f) => ({
+                  ...f,
+                  smtp_user: val,
+                  smtp_from_email: selectedPreset && selectedPreset.id !== 'custom' ? val : f.smtp_from_email,
+                }));
+              }}
+              placeholder="your@email.com"
+            />
+
+            <TextField
+              label={editingConfig ? '授权码 (留空则不更新)' : '授权码'}
+              type="password"
+              fullWidth
+              value={configForm.smtp_password}
+              onChange={(e) => setConfigForm({ ...configForm, smtp_password: e.target.value })}
+              placeholder={selectedPreset?.id === 'qq' ? '16 位 QQ 邮箱授权码' : selectedPreset?.id === '163' ? '16 位网易客户端授权码' : '应用专用密码 / 授权码'}
+            />
+
+            <TextField
+              label="发件人名称"
+              fullWidth
+              value={configForm.smtp_from_name}
+              onChange={(e) => setConfigForm({ ...configForm, smtp_from_name: e.target.value })}
+            />
+
+            {(!selectedPreset || selectedPreset.id === 'custom') && (
+              <>
+                <TextField label="SMTP 服务器地址" fullWidth value={configForm.smtp_host} onChange={(e) => setConfigForm({ ...configForm, smtp_host: e.target.value })} />
+                <TextField label="端口" type="number" fullWidth value={configForm.smtp_port} onChange={(e) => setConfigForm({ ...configForm, smtp_port: parseInt(e.target.value) || 0 })} />
+                <TextField label="发件人邮箱" fullWidth value={configForm.smtp_from_email} onChange={(e) => setConfigForm({ ...configForm, smtp_from_email: e.target.value })} />
+                <FormControl fullWidth>
+                  <InputLabel>加密方式</InputLabel>
+                  <Select value={configForm.smtp_security} label="加密方式" onChange={(e) => setConfigForm({ ...configForm, smtp_security: e.target.value as SmtpSecurity })}>
+                    <MenuItem value="starttls">STARTTLS</MenuItem>
+                    <MenuItem value="ssl">SSL/TLS</MenuItem>
+                    <MenuItem value="none">无加密</MenuItem>
+                  </Select>
+                </FormControl>
+              </>
+            )}
+
+            {selectedPreset && selectedPreset.id !== 'custom' && (
+              <Paper variant="outlined" sx={{ p: 1.5, bgcolor: '#F5F5F5' }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                  自动配置 (由预设填充)
+                </Typography>
+                <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                  {configForm.smtp_host}:{configForm.smtp_port} · {SECURITY_LABELS[configForm.smtp_security] || configForm.smtp_security}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  发件人邮箱: {configForm.smtp_from_email || '(同邮箱账号)'}
+                </Typography>
+              </Paper>
+            )}
+
             <TextField label="描述 (可选)" fullWidth value={configForm.description} onChange={(e) => setConfigForm({ ...configForm, description: e.target.value })} />
           </Box>
         </DialogContent>
