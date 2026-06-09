@@ -100,7 +100,7 @@ class BatchSettingsRequest(BaseModel):
 # ─── User Management (Admin) ─────────────────────────────
 
 class UserListItem(BaseModel):
-    """Simplified user item for admin list view."""
+    """Simplified user item for admin list view (Phase 1.5 expanded)."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -114,13 +114,18 @@ class UserListItem(BaseModel):
     hospital: str | None
     department: str | None
     title: str | None
+    age_years: int | None
+    gender: str | None
+    province: str | None
+    city: str | None
+    specialties: str | None
     created_at: datetime
     updated_at: datetime
     last_login_at: datetime | None
 
 
 class UserAdminUpdate(BaseModel):
-    """Admin update user request."""
+    """Admin update user request (Phase 1.5 expanded)."""
 
     full_name: str | None = Field(None, min_length=1, max_length=255)
     status: str | None = Field(None, pattern=r"^(active|inactive|pending)$")
@@ -129,6 +134,16 @@ class UserAdminUpdate(BaseModel):
     hospital: str | None = Field(None, max_length=255)
     department: str | None = Field(None, max_length=100)
     title: str | None = Field(None, max_length=50)
+    age_years: int | None = Field(None, ge=0, le=120)
+    age_months: int | None = Field(None, ge=0, le=11)
+    gender: str | None = Field(None, pattern=r'^(male|female)$')
+    province: str | None = Field(None, max_length=50)
+    city: str | None = Field(None, max_length=50)
+    district: str | None = Field(None, max_length=50)
+    street: str | None = Field(None, max_length=255)
+    education: str | None = Field(None, max_length=20)
+    years_of_practice: int | None = Field(None, ge=0, le=60)
+    specialties: str | None = Field(None, max_length=500)
 
 
 class DoctorVerifyRequest(BaseModel):

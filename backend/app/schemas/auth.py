@@ -17,14 +17,28 @@ class UserBase(BaseModel):
 
 
 class UserRegister(UserBase):
-    """User registration request."""
+    """User registration request (Phase 1.5 expanded)."""
 
     password: str = Field(..., min_length=8, max_length=128)
     role: UserRole = UserRole.PATIENT
+
+    # Patient + Doctor shared
+    age_years: int | None = Field(None, ge=0, le=120)
+    age_months: int | None = Field(None, ge=0, le=11)
+    gender: str | None = Field(None, pattern=r'^(male|female)$')
+    province: str | None = Field(None, max_length=50)
+    city: str | None = Field(None, max_length=50)
+    district: str | None = Field(None, max_length=50)
+    street: str | None = Field(None, max_length=255)
+    education: str | None = Field(None, max_length=20)
+
+    # Doctor-specific
     license_number: str | None = Field(None, max_length=100)
     hospital: str | None = Field(None, max_length=255)
     department: str | None = Field(None, max_length=100)
     title: str | None = Field(None, max_length=50)
+    years_of_practice: int | None = Field(None, ge=0, le=60)
+    specialties: str | None = Field(None, max_length=500)
 
 
 class UserLogin(BaseModel):
@@ -51,7 +65,7 @@ class Token(BaseModel):
 
 
 class UserResponse(UserBase):
-    """User response schema."""
+    """User response schema (Phase 1.5 expanded)."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -63,6 +77,16 @@ class UserResponse(UserBase):
     hospital: str | None
     department: str | None
     title: str | None
+    age_years: int | None
+    age_months: int | None
+    gender: str | None
+    province: str | None
+    city: str | None
+    district: str | None
+    street: str | None
+    education: str | None
+    years_of_practice: int | None
+    specialties: str | None
     created_at: datetime
     updated_at: datetime
     last_login_at: datetime | None

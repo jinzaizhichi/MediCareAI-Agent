@@ -16,7 +16,7 @@ from app.core.encryption import decrypt_value, encrypt_value, mask_api_key
 from app.db.session import get_db
 from app.models.audit import AuditActionType, AuditLog, AuditResourceType
 from app.models.config import LLMProviderConfig, SystemSetting
-from app.models.user import User, UserRole
+from app.models.user import User, UserAttachment, UserRole
 from app.schemas.audit import AuditLogDetail, AuditLogListItem, AuditLogStats
 from app.schemas.config import (
     BatchSettingsRequest,
@@ -1406,4 +1406,60 @@ async def external_search(
         "total_results": len(result_items),
         "trusted_count": sum(1 for r in result_items if r.is_trusted),
         "latency_ms": latency_ms,
+    }
+
+
+# ══════════════════════════════════════════════════════════════════
+# Phase 1.5: Admin credential verification endpoints
+# ══════════════════════════════════════════════════════════════════
+
+@router.get("/users/{user_id}/attachments")
+async def admin_get_user_attachments(
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> list[dict]:
+    """Admin: view a user's credential attachments."""
+    result = await db.execute(
+        select(UserAttachment).where(UserAttachment.user_id == user_id)
+    )
+    return [
+        {
+            "id": str(a.id),
+            "file_name": a.file_name,
+            "file_url": a.file_url,
+            "file_size": a.file_size,
+            "mime_type": a.mime_type,
+            "category": a.category,
+            "label": a.label,
+            "is_verified": a.is_verified,
+            "verify_note": a.verify_note,
+            "uploaded_at": a.uploaded_at.isoformat() if a.uploaded_at else None,
+        }
+        for a in result.scalars().all()
+    ]
+
+
+@router.patch("/attachments/{attachment_id}/verify")
+async def admin_verify_attachment(
+    attachment_id: str,
+    is_verified: bool = Body(...),
+    verify_note: str | None = Body(None),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Admin: verify or reject a single credential attachment."""
+    result = await db.execute(
+        select(UserAttachment).where(UserAttachment.id == attachment_id)
+    )
+    att = result.scalar_one_or_none()
+    if not att:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+
+    att.is_verified = is_verified
+    att.verify_note = verify_note
+    await db.commit()
+
+    return {
+        "id": str(att.id),
+        "is_verified": att.is_verified,
+        "verify_note": att.verify_note,
     }

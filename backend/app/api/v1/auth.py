@@ -10,14 +10,14 @@ Supports:
 import hashlib
 import uuid
 from datetime import datetime, timedelta, timezone
-
 from typing import Annotated, Any
 
 import jwt
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Body, Depends, File, Form, Header, HTTPException, Request, UploadFile, status
 from fastapi.responses import Response
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy import select, delete, update
+from pydantic import BaseModel, Field
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, CurrentUserContext, get_current_user
@@ -32,7 +32,7 @@ from app.core.security import (
 )
 from app.db.redis_client import get_redis
 from app.db.session import get_db
-from app.models.user import GuestSession, RoleSwitchLog, User, UserRole, UserStatus
+from app.models.user import GuestSession, RoleSwitchLog, User, UserAttachment, UserRole, UserStatus
 from app.schemas.auth import (
     GuestSessionResponse,
     LoginResponse,
@@ -65,14 +65,19 @@ def _read_platform(request: Request, x_platform: str | None) -> str:
     return "web"
 
 
-@router.post("/register", response_model=LoginResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/register", status_code=status.HTTP_201_CREATED)
 async def register(
     data: UserRegister,
     request: Request,
     x_platform: Annotated[str | None, Header(alias="X-Platform")] = None,
     db: AsyncSession = Depends(get_db),
-) -> LoginResponse:
-    """Register a new user (patient or doctor)."""
+) -> LoginResponse | dict:
+    """Register a new user.
+
+    Phase 1.5 role-split:
+    - patient → status=ACTIVE, is_verified=True, returns LoginResponse (auto-login)
+    - doctor  → status=PENDING, is_verified=False, returns {message} (no token, manual approval)
+    """
     platform = _read_platform(request, x_platform)
 
     # Check email+role uniqueness
@@ -85,21 +90,38 @@ async def register(
             detail=f"User with email {data.email} and role {data.role.value} already exists",
         )
 
+    is_doctor = data.role == UserRole.DOCTOR
+
     user = User(
         email=data.email,
         hashed_password=get_password_hash(data.password),
         full_name=data.full_name,
         phone=data.phone,
         role=data.role,
-        status=UserStatus.ACTIVE,
+        status=UserStatus.PENDING if is_doctor else UserStatus.ACTIVE,
+        is_verified=not is_doctor,
         license_number=data.license_number,
         hospital=data.hospital,
         department=data.department,
         title=data.title,
+        # Phase 1.5 new fields
+        age_years=data.age_years,
+        age_months=data.age_months,
+        gender=data.gender,
+        province=data.province,
+        city=data.city,
+        district=data.district,
+        street=data.street,
+        education=data.education,
+        years_of_practice=data.years_of_practice,
+        specialties=data.specialties,
     )
     db.add(user)
     await db.commit()
     await db.refresh(user)
+
+    if is_doctor:
+        return {"message": "注册成功，请等待管理员审核。审核通过后即可登录。"}
 
     token = create_access_token(user.id, platform=platform)
     return LoginResponse(
@@ -157,6 +179,20 @@ async def login(
 
     # Update last login
     user.last_login_at = datetime.now(timezone.utc)
+
+    # Phase 1.5: block PENDING/INACTIVE doctors
+    if user.role == UserRole.DOCTOR:
+        if user.status == UserStatus.PENDING:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="您的账户正在审核中，请等待管理员审批。",
+            )
+        if user.status == UserStatus.INACTIVE:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="您的账户已被禁用，请联系管理员。",
+            )
+
     await db.commit()
 
     token = create_access_token(user.id, platform=platform)
@@ -469,3 +505,131 @@ async def migrate_guest_to_user(
     await db.commit()
 
     return {"migrated": result.rowcount}
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Phase 1.5: Profile edit + credential attachments
+# ══════════════════════════════════════════════════════════════════════
+
+class ProfileUpdateRequest(BaseModel):
+    """Profile edit request (Phase 1.5)."""
+    full_name: str | None = Field(None, min_length=1, max_length=255)
+    phone: str | None = Field(None, max_length=50)
+    age_years: int | None = Field(None, ge=0, le=120)
+    age_months: int | None = Field(None, ge=0, le=11)
+    gender: str | None = Field(None, pattern=r'^(male|female)$')
+    province: str | None = Field(None, max_length=50)
+    city: str | None = Field(None, max_length=50)
+    district: str | None = Field(None, max_length=50)
+    street: str | None = Field(None, max_length=255)
+    education: str | None = Field(None, max_length=20)
+    specialties: str | None = Field(None, max_length=500)
+
+
+@router.patch("/auth/me", response_model=UserResponse)
+async def update_profile(
+    data: ProfileUpdateRequest,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Update own profile (role/password/license_number not allowed)."""
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(current_user, field, value)
+    await db.commit()
+    await db.refresh(current_user)
+    return current_user
+
+
+@router.post("/users/me/attachments", status_code=status.HTTP_201_CREATED)
+async def upload_attachments(
+    files: list[UploadFile] = File(...),
+    category: str = Form(default="doctor_license"),
+    label: str | None = Form(default=None),
+    current_user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Upload doctor credential attachments (Phase 1.5)."""
+    MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
+    MAX_TOTAL_SIZE = 20 * 1024 * 1024  # 20 MB
+    ALLOWED_MIMES = {"image/jpeg", "image/png", "application/pdf"}
+
+    total_size = 0
+    saved = []
+
+    for file in files:
+        content = await file.read()
+        total_size += len(content)
+
+        if len(content) > MAX_FILE_SIZE:
+            raise HTTPException(status_code=413, detail=f"文件 {file.filename} 超过 5MB 限制")
+        if file.content_type and file.content_type not in ALLOWED_MIMES:
+            raise HTTPException(status_code=400, detail=f"不支持的文件格式: {file.content_type}")
+
+    if total_size > MAX_TOTAL_SIZE:
+        raise HTTPException(status_code=413, detail="文件总量超过 20MB 限制")
+
+    # Upload to OSS
+    from app.services.oss_service import OssService
+    oss = OssService()
+
+    for file in files:
+        await file.seek(0)
+        content = await file.read()
+        url = await oss.upload_bytes(content, file.filename or "attachment")
+
+        att = UserAttachment(
+            user_id=current_user.id,
+            file_name=file.filename or "unknown",
+            file_url=url,
+            file_size=len(content),
+            mime_type=file.content_type,
+            category=category,
+            label=label,
+        )
+        db.add(att)
+        saved.append(att)
+
+    await db.commit()
+
+    return {
+        "attachments": [
+            {
+                "id": str(a.id),
+                "file_name": a.file_name,
+                "file_url": a.file_url,
+                "file_size": a.file_size,
+                "mime_type": a.mime_type,
+                "category": a.category,
+                "label": a.label,
+                "is_verified": a.is_verified,
+                "uploaded_at": a.uploaded_at.isoformat() if a.uploaded_at else None,
+            }
+            for a in saved
+        ],
+    }
+
+
+@router.get("/users/me/attachments")
+async def get_attachments(
+    current_user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict]:
+    """List own credential attachments."""
+    result = await db.execute(
+        select(UserAttachment).where(UserAttachment.user_id == current_user.id)
+    )
+    return [
+        {
+            "id": str(a.id),
+            "file_name": a.file_name,
+            "file_url": a.file_url,
+            "file_size": a.file_size,
+            "mime_type": a.mime_type,
+            "category": a.category,
+            "label": a.label,
+            "is_verified": a.is_verified,
+            "verify_note": a.verify_note,
+            "uploaded_at": a.uploaded_at.isoformat() if a.uploaded_at else None,
+        }
+        for a in result.scalars().all()
+    ]

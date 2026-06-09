@@ -29,8 +29,22 @@ export interface RegisterRequest {
   email: string;
   password: string;
   role: 'patient' | 'doctor';
-  name: string;
+  full_name: string;
   phone?: string;
+  age_years?: number | null;
+  age_months?: number | null;
+  gender?: 'male' | 'female' | null;
+  province?: string;
+  city?: string;
+  district?: string;
+  street?: string;
+  education?: string;
+  license_number?: string;
+  hospital?: string;
+  department?: string;
+  title?: string;
+  years_of_practice?: number | null;
+  specialties?: string;
 }
 
 export interface UserInfo {
@@ -57,7 +71,7 @@ export async function login(data: LoginRequest): Promise<LoginResponse> {
   return json;
 }
 
-export async function register(data: RegisterRequest): Promise<{ message: string }> {
+export async function register(data: RegisterRequest): Promise<{ message?: string; access_token?: string; user?: { id: string; email: string; role: string } }> {
   const res = await fetch(`${API_BASE}/auth/register`, {
     method: 'POST',
     headers: jsonHeaders(),
@@ -65,6 +79,11 @@ export async function register(data: RegisterRequest): Promise<{ message: string
   });
   const json = await res.json();
   if (!res.ok) throw new Error(json.detail || json.message || 'Register failed');
+
+  if (json.access_token) {
+    localStorage.setItem('access_token', json.access_token);
+    localStorage.setItem('user_role', json.user?.role || data.role);
+  }
   return json;
 }
 

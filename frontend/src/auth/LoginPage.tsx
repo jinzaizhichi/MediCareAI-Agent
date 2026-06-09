@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Button,
@@ -14,12 +14,13 @@ import {
   useTheme,
 } from '@mui/material';
 import { Visibility, VisibilityOff, Email, Lock } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { login, getMe } from '../api/auth';
 
 const LoginPage: React.FC = () => {
   const theme = useTheme();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -34,6 +35,14 @@ const LoginPage: React.FC = () => {
     message: '',
     severity: 'error',
   });
+
+  useEffect(() => {
+    const msg = (location.state as { message?: string } | null)?.message;
+    if (msg) {
+      setSnackbar({ open: true, message: msg, severity: 'success' });
+      window.history.replaceState({}, '');
+    }
+  }, [location.state]);
 
   const handleTogglePassword = () => setShowPassword((prev) => !prev);
 
@@ -155,7 +164,7 @@ const LoginPage: React.FC = () => {
             variant="body2"
             sx={{ mb: 4, color: theme.palette.text.secondary }}
           >
-            请登录您的患者账号
+            请登录您的账号
           </Typography>
 
           <Box component="form" onSubmit={handleSubmit} noValidate>
