@@ -545,7 +545,7 @@ async def upload_attachments(
     files: list[UploadFile] = File(...),
     category: str = Form(default="doctor_license"),
     label: str | None = Form(default=None),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Upload doctor credential attachments (Phase 1.5)."""
@@ -611,7 +611,7 @@ async def upload_attachments(
 
 @router.get("/users/me/attachments")
 async def get_attachments(
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[dict]:
     """List own credential attachments."""
