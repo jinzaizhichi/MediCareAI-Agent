@@ -133,10 +133,10 @@ async def create_email_config(
     await db.commit()
     await db.refresh(new_cfg)
 
-    audit = AuditService(db)
-    await audit.log(
-        user_id=current_user.id,
-        action=AuditActionType.CREATE,
+    await AuditService.record(
+        db=db,
+        user_id=str(current_user.id),
+        action=AuditActionType.SETTINGS_CHANGE,
         resource_type=AuditResourceType.SYSTEM_SETTING,
         resource_id=str(new_cfg.id),
         details={"smtp_host": data.smtp_host, "smtp_user": data.smtp_user},
@@ -180,10 +180,10 @@ async def update_email_config(
     await db.commit()
     await db.refresh(cfg)
 
-    audit = AuditService(db)
-    await audit.log(
-        user_id=current_user.id,
-        action=AuditActionType.UPDATE,
+    await AuditService.record(
+        db=db,
+        user_id=str(current_user.id),
+        action=AuditActionType.SETTINGS_CHANGE,
         resource_type=AuditResourceType.SYSTEM_SETTING,
         resource_id=str(cfg.id),
         details={"updated_fields": list(update_fields.keys())},
@@ -211,10 +211,10 @@ async def delete_email_config(
     await db.delete(cfg)
     await db.commit()
 
-    audit = AuditService(db)
-    await audit.log(
-        user_id=current_user.id,
-        action=AuditActionType.DELETE,
+    await AuditService.record(
+        db=db,
+        user_id=str(current_user.id),
+        action=AuditActionType.SETTINGS_CHANGE,
         resource_type=AuditResourceType.SYSTEM_SETTING,
         resource_id=str(config_id),
     )
