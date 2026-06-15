@@ -8,6 +8,7 @@ Supports:
 """
 
 import hashlib
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
@@ -48,6 +49,7 @@ from app.services.config import DynamicConfigService
 
 router = APIRouter()
 settings = get_settings()
+_log = logging.getLogger("auth")
 
 
 def _read_platform(request: Request, x_platform: str | None) -> str:
@@ -163,8 +165,10 @@ async def register(
         _log.error(f"Failed to send verification email to {user.email}: {e}")
 
     if email_sent:
+        _log.info(f"[REGISTER] patient={user.email} user_id={user.id} email_sent=yes")
         return {"message": "注册成功！验证邮件已发送到您的邮箱，请点击邮件中的链接完成验证。"}
     else:
+        _log.warning(f"[REGISTER] patient={user.email} user_id={user.id} email_sent=FAILED")
         return {"message": "注册成功，但验证邮件发送失败。请稍后在登录页面点击「重新发送验证邮件」，或联系管理员。"}
 
 
@@ -248,6 +252,7 @@ async def register_doctor(
         db.add(att)
     await db.commit()
 
+    _log.info(f"[REGISTER-DOCTOR] email={email} user_id={user.id} files={len(upload_files)}")
     return {"message": "注册申请已提交，请等待管理员审核。审核通过后请查收确认邮件。"}
 
 
@@ -296,6 +301,7 @@ async def verify_email(
     user.verification_token = None
     user.verification_token_expires = None
     await db.commit()
+    _log.info(f"[VERIFY-EMAIL] user_id={user.id} email={user.email} result=ok")
 
     # Redirect to login page with success message
     from fastapi.responses import RedirectResponse
@@ -317,6 +323,7 @@ async def login(
     users = result.scalars().all()
 
     if not users:
+        _log.warning(f"[LOGIN] email={form_data.username} result=not_found")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
@@ -330,6 +337,7 @@ async def login(
     ]
 
     if not matched_users:
+        _log.warning(f"[LOGIN] email={form_data.username} result=wrong_password")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
@@ -353,16 +361,19 @@ async def login(
     # Phase 1.5: block PENDING/INACTIVE doctors + unverified patients
     if user.role == UserRole.DOCTOR:
         if user.status == UserStatus.INACTIVE:
+            _log.warning(f"[LOGIN] email={form_data.username} role=doctor result=inactive")
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="您的账户已被禁用，请联系管理员。",
             )
     if user.role == UserRole.PATIENT and not user.email_verified:
+        _log.warning(f"[LOGIN] email={form_data.username} role=patient result=email_not_verified")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="请先验证您的邮箱。验证邮件已发送至您的注册邮箱，请点击邮件中的链接完成验证。",
         )
 
+    _log.info(f"[LOGIN] email={form_data.username} role={user.role.value} result=ok")
     await db.commit()
 
     token = create_access_token(user.id, platform=platform)

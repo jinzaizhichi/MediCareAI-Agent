@@ -5,6 +5,7 @@ Requires admin role.
 """
 
 from datetime import datetime, timedelta, timezone
+import logging
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile, status
@@ -40,6 +41,7 @@ from app.services.external_search import ExternalSearchAgent
 from app.services.llm import LLMService
 
 router = APIRouter(dependencies=[Depends(require_role(UserRole.ADMIN))])
+_log = logging.getLogger("admin")
 
 # ─── Predefined Business Settings ─────────────────────────────
 # These settings are auto-created on first access if missing.
@@ -918,6 +920,7 @@ async def verify_doctor(
             logging.getLogger(__name__).error(f"Failed to send approval email: {e}")
 
         await db.refresh(doctor)
+        _log.info(f"[ADMIN-VERIFY] doctor={doctor.email} action=approve token_sent=yes")
         return {"success": True, "message": "已通过，确认邮件已发送", "action": "approve"}
 
     # Reject: full delete
@@ -951,6 +954,7 @@ async def verify_doctor(
         import logging
         logging.getLogger(__name__).error(f"Failed to send rejection email: {e}")
 
+    _log.info(f"[ADMIN-VERIFY] doctor={doctor_email} action=reject reason={reason}")
     return {"success": True, "message": "已驳回并删除", "action": "reject"}
 
 
