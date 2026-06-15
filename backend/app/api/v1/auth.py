@@ -69,7 +69,6 @@ def _read_platform(request: Request, x_platform: str | None) -> str:
 async def register(
     data: UserRegister,
     request: Request,
-    upload_files: list[UploadFile] | None = File(default=None),
     x_platform: Annotated[str | None, Header(alias="X-Platform")] = None,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -120,32 +119,7 @@ async def register(
     await db.refresh(user)
 
     if is_doctor:
-        attachments_uploaded = 0
-        if upload_files:
-            from app.services.oss_service import OssService
-            oss = OssService()
-            for file in upload_files:
-                content = await file.read()
-                if len(content) > 5 * 1024 * 1024:
-                    continue  # skip oversized files
-                url = await oss.upload_bytes(content, file.filename or "credential")
-                att = UserAttachment(
-                    user_id=user.id,
-                    file_name=file.filename or "credential",
-                    file_url=url,
-                    file_size=len(content),
-                    mime_type=file.content_type,
-                    category="doctor_license",
-                )
-                db.add(att)
-                attachments_uploaded += 1
-            await db.commit()
-
-        msg = "注册成功，请等待管理员审核。"
-        if attachments_uploaded:
-            msg += f" 已上传 {attachments_uploaded} 个证件文件。"
-        msg += " 审核通过后即可登录。"
-        return {"message": msg}
+        return {"message": "注册成功，请等待管理员审核。审核通过后即可登录。"}
 
     # Patient: generate verification token and send email
     import secrets

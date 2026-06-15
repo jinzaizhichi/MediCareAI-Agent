@@ -71,23 +71,12 @@ export async function login(data: LoginRequest): Promise<LoginResponse> {
   return json;
 }
 
-export async function register(data: RegisterRequest, files?: File[]): Promise<{ message?: string; access_token?: string; user?: { id: string; email: string; role: string } }> {
-  let res: Response;
-
-  if (files && files.length > 0) {
-    const fd = new FormData();
-    for (const [k, v] of Object.entries(data)) {
-      if (v !== undefined && v !== null) fd.append(k, String(v));
-    }
-    for (const f of files) fd.append('upload_files', f);
-    res = await fetch(`${API_BASE}/auth/register`, { method: 'POST', body: fd });
-  } else {
-    res = await fetch(`${API_BASE}/auth/register`, {
-      method: 'POST',
-      headers: jsonHeaders(),
-      body: JSON.stringify(data),
-    });
-  }
+export async function register(data: RegisterRequest): Promise<{ message?: string; access_token?: string; user?: { id: string; email: string; role: string } }> {
+  const res = await fetch(`${API_BASE}/auth/register`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    body: JSON.stringify(data),
+  });
 
   const json = await res.json();
   if (!res.ok) throw new Error(json.detail || json.message || 'Register failed');
