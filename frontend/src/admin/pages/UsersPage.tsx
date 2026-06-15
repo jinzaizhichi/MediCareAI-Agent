@@ -8,7 +8,7 @@ import {
 } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
 import SearchIcon from '@mui/icons-material/Search';
-import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutline';
+import CancelIcon from '@mui/icons-material/Cancel';
 import { listUsers, updateUser, kickUser } from '../../api/admin';
 import type { UserItem, UserAdminUpdate } from '../../types/admin';
 import { PageHeader } from '../../components/layout/PageHeader';
@@ -335,7 +335,7 @@ export default function UsersPage() {
                         {u.status !== 'inactive' && (
                           <Tooltip title="踢出">
                             <IconButton size="small" color="error" onClick={() => handleOpenKick(u)}>
-                              <RemoveCircleOutlineIcon fontSize="small" />
+                              <CancelIcon fontSize="small" />
                             </IconButton>
                           </Tooltip>
                         )}
