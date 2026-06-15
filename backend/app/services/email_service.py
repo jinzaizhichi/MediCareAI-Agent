@@ -123,14 +123,20 @@ class EmailService:
     # ------------------------------------------------------------------
 
     async def _get_default_config(self, db: AsyncSession) -> EmailConfiguration | None:
-        """Load the active default config from DB."""
+        """Load the active default config from DB. Falls back to first active if none marked default."""
         stmt = (
             select(EmailConfiguration)
             .where(EmailConfiguration.is_active == True)
             .where(EmailConfiguration.is_default == True)
         )
         result = await db.execute(stmt)
-        return result.scalar_one_or_none()
+        cfg = result.scalar_one_or_none()
+        if cfg:
+            return cfg
+        # Fallback: any active config
+        stmt2 = select(EmailConfiguration).where(EmailConfiguration.is_active == True).limit(1)
+        result2 = await db.execute(stmt2)
+        return result2.scalar_one_or_none()
 
     async def load_config(self, db: AsyncSession) -> bool:
         """Load default config into memory. Returns True if available."""
