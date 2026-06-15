@@ -175,6 +175,7 @@ const LoginPage: React.FC = () => {
           <Box component="form" onSubmit={handleSubmit} noValidate>
             <TextField
               fullWidth
+              id="email-input"
               label="邮箱地址"
               type="email"
               value={email}
@@ -247,6 +248,34 @@ const LoginPage: React.FC = () => {
           </Box>
 
           <Box sx={{ mt: 3, textAlign: 'center' }}>
+            <Typography
+              variant="body2"
+              sx={{ color: theme.palette.text.secondary }}
+            >
+              没有收到验证邮件？{' '}
+              <Link
+                component="button"
+                type="button"
+                onClick={async () => {
+                  const email = (document.getElementById('email-input') as HTMLInputElement)?.value;
+                  if (!email) { setSnackbar({ open: true, message: '请先输入邮箱地址', severity: 'error' }); return; }
+                  try {
+                    const res = await fetch(`${import.meta.env.VITE_API_BASE || '/api/v1'}/auth/resend-verification`, {
+                      method: 'POST', headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ email }),
+                    });
+                    const json = await res.json();
+                    setSnackbar({ open: true, message: json.message || '已发送', severity: res.ok ? 'success' : 'error' });
+                  } catch { setSnackbar({ open: true, message: '请求失败，请稍后再试', severity: 'error' }); }
+                }}
+                sx={{ color: theme.palette.primary.main, fontWeight: 600, textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}
+              >
+                重新发送验证邮件
+              </Link>
+            </Typography>
+          </Box>
+
+          <Box sx={{ mt: 1, textAlign: 'center' }}>
             <Typography
               variant="body2"
               sx={{ color: theme.palette.text.secondary }}

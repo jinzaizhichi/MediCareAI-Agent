@@ -69,6 +69,7 @@ def _read_platform(request: Request, x_platform: str | None) -> str:
 async def register(
     data: UserRegister,
     request: Request,
+    upload_files: list[UploadFile] | None = File(default=None),
     x_platform: Annotated[str | None, Header(alias="X-Platform")] = None,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -119,7 +120,32 @@ async def register(
     await db.refresh(user)
 
     if is_doctor:
-        return {"message": "注册成功，请等待管理员审核。审核通过后即可登录。"}
+        attachments_uploaded = 0
+        if upload_files:
+            from app.services.oss_service import OssService
+            oss = OssService()
+            for file in upload_files:
+                content = await file.read()
+                if len(content) > 5 * 1024 * 1024:
+                    continue  # skip oversized files
+                url = await oss.upload_bytes(content, file.filename or "credential")
+                att = UserAttachment(
+                    user_id=user.id,
+                    file_name=file.filename or "credential",
+                    file_url=url,
+                    file_size=len(content),
+                    mime_type=file.content_type,
+                    category="doctor_license",
+                )
+                db.add(att)
+                attachments_uploaded += 1
+            await db.commit()
+
+        msg = "注册成功，请等待管理员审核。"
+        if attachments_uploaded:
+            msg += f" 已上传 {attachments_uploaded} 个证件文件。"
+        msg += " 审核通过后即可登录。"
+        return {"message": msg}
 
     # Patient: generate verification token and send email
     import secrets
@@ -132,11 +158,16 @@ async def register(
     verify_url = f"{base_url}/api/v1/auth/verify-email?token={token}"
 
     from app.services.email_service import email_service
-    await email_service.send_email(
-        db=db,
-        to_email=user.email,
-        subject="【MediCareAI-Agent】请验证您的邮箱",
-        html_content=f"""<!DOCTYPE html>
+    import logging
+    _log = logging.getLogger(__name__)
+
+    email_sent = False
+    try:
+        await email_service.send_email(
+            db=db,
+            to_email=user.email,
+            subject="【MediCareAI-Agent】请验证您的邮箱",
+            html_content=f"""<!DOCTYPE html>
 <html><body style="font-family:Arial,sans-serif;line-height:1.6;color:#333;">
 <div style="max-width:600px;margin:0 auto;padding:20px;">
 <h2 style="color:#667eea;">欢迎注册 MediCareAI-Agent</h2>
@@ -151,10 +182,16 @@ async def register(
 <hr style="border:1px solid #eee;margin:20px 0;">
 <p style="font-size:12px;color:#666;">MediCareAI-Agent 智能医疗助手</p>
 </div></body></html>""",
-        text_content=f"欢迎注册 MediCareAI-Agent\n\n请点击以下链接验证邮箱：\n{verify_url}\n\n此链接 24 小时内有效。",
-    )
+            text_content=f"欢迎注册 MediCareAI-Agent\n\n请点击以下链接验证邮箱：\n{verify_url}\n\n此链接 24 小时内有效。",
+        )
+        email_sent = True
+    except Exception as e:
+        _log.error(f"Failed to send verification email to {user.email}: {e}")
 
-    return {"message": "注册成功！验证邮件已发送到您的邮箱，请点击邮件中的链接完成验证。"}
+    if email_sent:
+        return {"message": "注册成功！验证邮件已发送到您的邮箱，请点击邮件中的链接完成验证。"}
+    else:
+        return {"message": "注册成功，但验证邮件发送失败。请稍后在登录页面点击「重新发送验证邮件」，或联系管理员。"}
 
 
 @router.get("/verify-email")
@@ -567,6 +604,69 @@ async def migrate_guest_to_user(
 # ══════════════════════════════════════════════════════════════════════
 # Phase 1.5: Profile edit + credential attachments
 # ══════════════════════════════════════════════════════════════════════
+
+class ResendVerificationRequest(BaseModel):
+    """Resend verification email request."""
+    email: str = Field(..., min_length=1, max_length=255)
+
+
+@router.post("/resend-verification")
+async def resend_verification(
+    data: ResendVerificationRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Resend verification email for unverified patients."""
+    result = await db.execute(
+        select(User).where(
+            User.email == data.email,
+            User.role == UserRole.PATIENT,
+            User.email_verified == False,
+        )
+    )
+    user = result.scalar_one_or_none()
+
+    if not user:
+        return {"message": "如果该邮箱已注册且未验证，验证邮件已重新发送。"}
+
+    import secrets
+    token = secrets.token_urlsafe(48)
+    user.verification_token = token
+    user.verification_token_expires = datetime.now(timezone.utc) + timedelta(hours=24)
+    await db.commit()
+
+    base_url = str(request.base_url).rstrip("/")
+    verify_url = f"{base_url}/api/v1/auth/verify-email?token={token}"
+
+    from app.services.email_service import email_service
+    import logging
+    _log = logging.getLogger(__name__)
+
+    try:
+        await email_service.send_email(
+            db=db,
+            to_email=user.email,
+            subject="【MediCareAI-Agent】请验证您的邮箱",
+            html_content=f"""<!DOCTYPE html>
+<html><body style="font-family:Arial,sans-serif;line-height:1.6;color:#333;">
+<div style="max-width:600px;margin:0 auto;padding:20px;">
+<h2 style="color:#667eea;">重新发送验证邮件</h2>
+<p>尊敬的 {user.full_name}：</p>
+<p>请点击下方按钮验证您的邮箱地址：</p>
+<p style="text-align:center;margin:30px 0;">
+  <a href="{verify_url}" style="background:#667eea;color:white;padding:12px 32px;border-radius:6px;text-decoration:none;font-size:16px;">验证邮箱</a>
+</p>
+<p>或复制以下链接到浏览器打开：</p>
+<p style="word-break:break-all;color:#667eea;">{verify_url}</p>
+<p style="color:#999;">此链接 24 小时内有效。</p>
+</div></body></html>""",
+        )
+    except Exception as e:
+        _log.error(f"Failed to resend verification email to {user.email}: {e}")
+        return {"message": "验证邮件发送失败，请稍后再试或联系管理员。"}
+
+    return {"message": "验证邮件已重新发送，请查收邮箱。"}
+
 
 class ProfileUpdateRequest(BaseModel):
     """Profile edit request (Phase 1.5)."""

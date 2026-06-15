@@ -50,6 +50,7 @@ export default function DoctorVerificationPage() {
   const [verifyAction, setVerifyAction] = useState<'approve' | 'reject'>('approve');
   const [verifyReason, setVerifyReason] = useState('');
   const [verifying, setVerifying] = useState(false);
+  const [attachments, setAttachments] = useState<any[]>([]);
 
   // Edit dialog
   const [editOpen, setEditOpen] = useState(false);
@@ -127,11 +128,19 @@ export default function DoctorVerificationPage() {
       });
   }, [tab, search]);
 
-  const handleOpenVerify = (u: UserItem, action: 'approve' | 'reject') => {
+  const handleOpenVerify = async (u: UserItem, action: 'approve' | 'reject') => {
     setVerifyUser(u);
     setVerifyAction(action);
     setVerifyReason('');
+    setAttachments([]);
     setVerifyOpen(true);
+    try {
+      const token = localStorage.getItem('access_token');
+      const res = await fetch(`${window.location.origin}/api/v1/admin/users/${u.id}/attachments`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) setAttachments(await res.json());
+    } catch {}
   };
 
   const handleVerify = async () => {
@@ -368,6 +377,26 @@ export default function DoctorVerificationPage() {
             <Typography variant="body2" color="text.secondary">
               医院: {verifyUser?.hospital || '未填写'} / 科室: {verifyUser?.department || '未填写'}
             </Typography>
+            <Divider />
+            {attachments.length > 0 && (
+              <Box>
+                <Typography variant="subtitle2" sx={{ mb: 1 }}>📎 证件文件 ({attachments.length})</Typography>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                  {attachments.map((att: any) => (
+                    <Chip
+                      key={att.id}
+                      label={`${att.file_name} (${att.file_size ? Math.round(att.file_size / 1024) + 'KB' : '?'})`}
+                      component="a"
+                      href={att.file_url}
+                      target="_blank"
+                      clickable
+                      size="small"
+                      variant="outlined"
+                    />
+                  ))}
+                </Box>
+              </Box>
+            )}
             <Divider />
             <TextField
               label={verifyAction === 'reject' ? '拒绝原因（可选）' : '备注（可选）'}
