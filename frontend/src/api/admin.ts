@@ -224,6 +224,15 @@ export async function updateUser(id: string, data: UserAdminUpdate): Promise<Use
   return handleResponse<UserItem>(res);
 }
 
+export async function kickUser(id: string, reason: string): Promise<{ success: boolean; message: string; email_sent: boolean }> {
+  const res = await fetch(`${API_BASE}/admin/users/${id}/kick`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    body: JSON.stringify({ reason }),
+  });
+  return handleResponse(res);
+}
+
 // ─── Doctor Verification ──────────────────────────────────────
 
 import type { DoctorVerifyRequest } from '../types/admin';

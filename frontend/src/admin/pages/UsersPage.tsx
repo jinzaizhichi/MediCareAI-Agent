@@ -1,13 +1,15 @@
 import { useEffect, useState, useCallback, startTransition } from 'react';
 import {
   Box, Button, Card, CardContent, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
+  Divider,
   FormControl, FormControlLabel, IconButton, InputLabel, MenuItem, Select, Switch,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField,
   Typography, Alert, Paper, CircularProgress, Tooltip, Grid,
 } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
 import SearchIcon from '@mui/icons-material/Search';
-import { listUsers, updateUser } from '../../api/admin';
+import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutline';
+import { listUsers, updateUser, kickUser } from '../../api/admin';
 import type { UserItem, UserAdminUpdate } from '../../types/admin';
 import { PageHeader } from '../../components/layout/PageHeader';
 
@@ -53,6 +55,14 @@ export default function UsersPage() {
   const [editingUser, setEditingUser] = useState<UserItem | null>(null);
   const [form, setForm] = useState<UserAdminUpdate>({});
   const [saving, setSaving] = useState(false);
+
+  const [kickOpen, setKickOpen] = useState(false);
+  const [kickTarget, setKickTarget] = useState<UserItem | null>(null);
+  const [kickReason, setKickReason] = useState('');
+  const [kickReasonOther, setKickReasonOther] = useState('');
+  const [kicking, setKicking] = useState(false);
+
+  const KICK_REASONS = ['违规发布医疗建议', '滥用平台资源', '发布不当内容', '用户主动要求注销'];
 
   // 数据获取：内联到 effect 中
   useEffect(() => {
@@ -141,6 +151,34 @@ export default function UsersPage() {
       setSaving(false);
     }
   };
+
+  const handleOpenKick = (u: UserItem) => {
+    setKickTarget(u);
+    setKickReason(KICK_REASONS[0]);
+    setKickReasonOther('');
+    setKickOpen(true);
+  };
+
+  const handleKick = async () => {
+    if (!kickTarget) return;
+    setKicking(true);
+    setError('');
+    const reason = kickReason === '其他' ? kickReasonOther : kickReason;
+    if (!reason.trim()) { setError('请输入踢出原因'); setKicking(false); return; }
+    try {
+      const res = await kickUser(kickTarget.id, reason);
+      setSuccess(res.email_sent ? '用户已被移除，通知邮件已发送' : '用户已被移除，但通知邮件发送失败');
+      setKickOpen(false);
+      handleRefresh();
+      setTimeout(() => setSuccess(''), 4000);
+    } catch (e: unknown) {
+      setError((e as Error).message);
+    } finally {
+      setKicking(false);
+    }
+  };
+
+  const isInactive = (u: UserItem) => u.status === 'inactive';
 
   return (
     <Box>
@@ -294,6 +332,13 @@ export default function UsersPage() {
                             <EditIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
+                        {u.status !== 'inactive' && (
+                          <Tooltip title="踢出">
+                            <IconButton size="small" color="error" onClick={() => handleOpenKick(u)}>
+                              <RemoveCircleOutlineIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))
@@ -380,6 +425,43 @@ export default function UsersPage() {
           <Button onClick={() => setOpenDialog(false)}>取消</Button>
           <Button variant="contained" onClick={handleSave} disabled={saving}>
             {saving ? <CircularProgress size={16} /> : '保存'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={kickOpen} onClose={() => setKickOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ color: 'error.main' }}>
+          🚫 踢出用户: {kickTarget?.full_name} ({getRoleLabel(kickTarget?.role || '')})
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+            <Typography variant="body2" color="text.secondary">
+              邮箱: {kickTarget?.email}
+            </Typography>
+            <Divider />
+            <Typography variant="body2" sx={{ fontWeight: 600 }}>踢出原因 (必填)</Typography>
+            <FormControl fullWidth size="small">
+              <Select value={KICK_REASONS.includes(kickReason) ? kickReason : '其他'} onChange={(e) => {
+                setKickReason(e.target.value);
+                if (e.target.value !== '其他') setKickReasonOther('');
+              }}>
+                {KICK_REASONS.map((r) => <MenuItem key={r} value={r}>{r}</MenuItem>)}
+                <MenuItem value="其他">其他 (请输入)</MenuItem>
+              </Select>
+            </FormControl>
+            {kickReason === '其他' && (
+              <TextField size="small" fullWidth placeholder="请输入踢出原因" value={kickReasonOther}
+                onChange={(e) => setKickReasonOther(e.target.value)} />
+            )}
+            <Alert severity="warning" sx={{ fontSize: '0.85rem' }}>
+              ✉️ 将发送邮件通知用户账户已被移除。该操作不可撤销，用户数据将保留但无法登录。
+            </Alert>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setKickOpen(false)}>取消</Button>
+          <Button variant="contained" color="error" onClick={handleKick} disabled={kicking}>
+            {kicking ? <CircularProgress size={16} /> : '确认踢出并发送邮件'}
           </Button>
         </DialogActions>
       </Dialog>

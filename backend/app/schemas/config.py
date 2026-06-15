@@ -146,6 +146,11 @@ class UserAdminUpdate(BaseModel):
     specialties: str | None = Field(None, max_length=500)
 
 
+class UserKickRequest(BaseModel):
+    """Admin kick/delete user request."""
+    reason: str = Field(..., min_length=1, max_length=500)
+
+
 class DoctorVerifyRequest(BaseModel):
     """Doctor verification approval / rejection request."""
 

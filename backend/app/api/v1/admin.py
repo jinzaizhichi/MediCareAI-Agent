@@ -16,7 +16,7 @@ from app.core.encryption import decrypt_value, encrypt_value, mask_api_key
 from app.db.session import get_db
 from app.models.audit import AuditActionType, AuditLog, AuditResourceType
 from app.models.config import LLMProviderConfig, SystemSetting
-from app.models.user import User, UserAttachment, UserRole
+from app.models.user import User, UserAttachment, UserRole, UserStatus
 from app.schemas.audit import AuditLogDetail, AuditLogListItem, AuditLogStats
 from app.schemas.config import (
     BatchSettingsRequest,
@@ -32,6 +32,7 @@ from app.schemas.config import (
     SystemSettingResponse,
     SystemSettingUpdate,
     UserAdminUpdate,
+    UserKickRequest,
     UserListItem,
 )
 from app.services.audit import AuditService
@@ -765,6 +766,69 @@ async def update_user(
     await db.commit()
     await db.refresh(user)
     return user
+
+
+@router.post("/users/{user_id}/kick")
+async def kick_user(
+    user_id: str,
+    data: UserKickRequest,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Kick (soft-delete) a user — sets status=INACTIVE and sends notification email.
+
+    Security: cannot kick self or the last active admin.
+    """
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if str(user.id) == str(current_user.id):
+        raise HTTPException(status_code=400, detail="不能踢出自己")
+
+    if user.role == UserRole.ADMIN:
+        from sqlalchemy import func as sql_func
+        admin_count = await db.scalar(
+            select(sql_func.count()).select_from(User).where(
+                User.role == UserRole.ADMIN, User.status == "active"
+            )
+        )
+        if admin_count <= 1:
+            raise HTTPException(status_code=400, detail="不能踢出最后一个管理员")
+
+    previous_status = user.status
+    user.status = UserStatus.INACTIVE
+    user.is_verified = False
+    await db.commit()
+
+    role_label = {"patient": "患者", "doctor": "医生", "admin": "管理员"}.get(user.role.value if hasattr(user.role, 'value') else user.role, str(user.role))
+
+    email_sent = False
+    try:
+        from app.services.email_service import email_service
+        await email_service.send_email(
+            db=db,
+            to_email=user.email,
+            subject="【MediCareAI-Agent】账户已被移除",
+            html_content=f"""<!DOCTYPE html>
+<html><body style="font-family:Arial,sans-serif;line-height:1.6;color:#333;">
+<div style="max-width:600px;margin:0 auto;padding:20px;">
+<h2 style="color:#e53935;">账户移除通知</h2>
+<p>尊敬的 {user.full_name}：</p>
+<p>您的 MediCareAI-Agent {role_label}账户已被管理员移除。</p>
+<p><strong>移除原因：</strong>{data.reason}</p>
+<p>如有疑问，请联系平台管理员。</p>
+<hr style="border:1px solid #eee;margin:20px 0;">
+<p style="font-size:12px;color:#666;">MediCareAI-Agent 智能医疗助手</p>
+</div></body></html>""",
+        )
+        email_sent = True
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Failed to send kick email to {user.email}: {e}")
+
+    return {"success": True, "message": "用户已被移除", "email_sent": email_sent}
 
 
 # ─── Doctor Verification ──────────────────────────────────────
