@@ -73,6 +73,9 @@ class User(Base):
 
     # Security flags
     password_change_required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    verification_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    verification_token_expires: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     role_switches: Mapped[list["RoleSwitchLog"]] = relationship(

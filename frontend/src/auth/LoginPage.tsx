@@ -42,7 +42,12 @@ const LoginPage: React.FC = () => {
       setSnackbar({ open: true, message: msg, severity: 'success' });
       window.history.replaceState({}, '');
     }
-  }, [location.state]);
+    const params = new URLSearchParams(location.search);
+    if (params.get('verified') === 'true') {
+      setSnackbar({ open: true, message: '邮箱验证成功！请登录您的账号。', severity: 'success' });
+      window.history.replaceState({}, '', '/login');
+    }
+  }, [location.state, location.search]);
 
   const handleTogglePassword = () => setShowPassword((prev) => !prev);
 

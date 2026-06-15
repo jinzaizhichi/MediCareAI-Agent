@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
 
 import jwt
-from fastapi import APIRouter, Body, Depends, File, Form, Header, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Body, Depends, File, Form, Header, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import Response
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
@@ -71,16 +71,14 @@ async def register(
     request: Request,
     x_platform: Annotated[str | None, Header(alias="X-Platform")] = None,
     db: AsyncSession = Depends(get_db),
-) -> LoginResponse | dict:
+) -> dict:
     """Register a new user.
 
-    Phase 1.5 role-split:
-    - patient → status=ACTIVE, is_verified=True, returns LoginResponse (auto-login)
-    - doctor  → status=PENDING, is_verified=False, returns {message} (no token, manual approval)
+    - patient → email verification required (email_verified=False, sends verification link)
+    - doctor  → status=PENDING, admin approval required (is_verified=False)
     """
     platform = _read_platform(request, x_platform)
 
-    # Check email+role uniqueness
     result = await db.execute(
         select(User).where(User.email == data.email, User.role == data.role)
     )
@@ -98,13 +96,13 @@ async def register(
         full_name=data.full_name,
         phone=data.phone,
         role=data.role,
-        status=UserStatus.PENDING if is_doctor else UserStatus.ACTIVE,
-        is_verified=not is_doctor,
+        status=UserStatus.ACTIVE,
+        is_verified=False,
+        email_verified=is_doctor,  # doctors skip email verify, use admin verify
         license_number=data.license_number,
         hospital=data.hospital,
         department=data.department,
         title=data.title,
-        # Phase 1.5 new fields
         age_years=data.age_years,
         age_months=data.age_months,
         gender=data.gender,
@@ -123,13 +121,67 @@ async def register(
     if is_doctor:
         return {"message": "注册成功，请等待管理员审核。审核通过后即可登录。"}
 
-    token = create_access_token(user.id, platform=platform)
-    return LoginResponse(
-        access_token=token,
-        token_type="bearer",
-        expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        user=UserResponse.model_validate(user),
+    # Patient: generate verification token and send email
+    import secrets
+    token = secrets.token_urlsafe(48)
+    user.verification_token = token
+    user.verification_token_expires = datetime.now(timezone.utc) + timedelta(hours=24)
+    await db.commit()
+
+    base_url = str(request.base_url).rstrip("/")
+    verify_url = f"{base_url}/api/v1/auth/verify-email?token={token}"
+
+    from app.services.email_service import email_service
+    await email_service.send_email(
+        db=db,
+        to_email=user.email,
+        subject="【MediCareAI-Agent】请验证您的邮箱",
+        html_content=f"""<!DOCTYPE html>
+<html><body style="font-family:Arial,sans-serif;line-height:1.6;color:#333;">
+<div style="max-width:600px;margin:0 auto;padding:20px;">
+<h2 style="color:#667eea;">欢迎注册 MediCareAI-Agent</h2>
+<p>尊敬的 {user.full_name}：</p>
+<p>感谢您注册 MediCareAI-Agent 智能医疗助手。请点击下方按钮验证您的邮箱地址：</p>
+<p style="text-align:center;margin:30px 0;">
+  <a href="{verify_url}" style="background:#667eea;color:white;padding:12px 32px;border-radius:6px;text-decoration:none;font-size:16px;">验证邮箱</a>
+</p>
+<p>或复制以下链接到浏览器打开：</p>
+<p style="word-break:break-all;color:#667eea;">{verify_url}</p>
+<p style="color:#999;">此链接 24 小时内有效。如非本人操作，请忽略此邮件。</p>
+<hr style="border:1px solid #eee;margin:20px 0;">
+<p style="font-size:12px;color:#666;">MediCareAI-Agent 智能医疗助手</p>
+</div></body></html>""",
+        text_content=f"欢迎注册 MediCareAI-Agent\n\n请点击以下链接验证邮箱：\n{verify_url}\n\n此链接 24 小时内有效。",
     )
+
+    return {"message": "注册成功！验证邮件已发送到您的邮箱，请点击邮件中的链接完成验证。"}
+
+
+@router.get("/verify-email")
+async def verify_email(
+    token: Annotated[str, Query(min_length=1)],
+    db: AsyncSession = Depends(get_db),
+):
+    """Verify email with token from registration email link."""
+    result = await db.execute(
+        select(User).where(User.verification_token == token)
+    )
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="无效的验证链接")
+
+    if user.verification_token_expires and user.verification_token_expires < datetime.now(timezone.utc):
+        raise HTTPException(status_code=410, detail="验证链接已过期，请重新注册")
+
+    user.email_verified = True
+    user.verification_token = None
+    user.verification_token_expires = None
+    await db.commit()
+
+    # Redirect to login page with success message
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/login?verified=true", status_code=302)
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -180,7 +232,7 @@ async def login(
     # Update last login
     user.last_login_at = datetime.now(timezone.utc)
 
-    # Phase 1.5: block PENDING/INACTIVE doctors
+    # Phase 1.5: block PENDING/INACTIVE doctors + unverified patients
     if user.role == UserRole.DOCTOR:
         if user.status == UserStatus.PENDING:
             raise HTTPException(
@@ -192,6 +244,11 @@ async def login(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="您的账户已被禁用，请联系管理员。",
             )
+    if user.role == UserRole.PATIENT and not user.email_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="请先验证您的邮箱。验证邮件已发送至您的注册邮箱，请点击邮件中的链接完成验证。",
+        )
 
     await db.commit()
 
