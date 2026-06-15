@@ -797,25 +797,23 @@ async def kick_user(
         if admin_count <= 1:
             raise HTTPException(status_code=400, detail="不能踢出最后一个管理员")
 
-    previous_status = user.status
-    user.status = UserStatus.INACTIVE
-    user.is_verified = False
-    await db.commit()
-
     role_label = {"patient": "患者", "doctor": "医生", "admin": "管理员"}.get(user.role.value if hasattr(user.role, 'value') else user.role, str(user.role))
+    user_email = user.email
+    user_name = user.full_name
 
+    # Send email BEFORE delete (need user data)
     email_sent = False
     try:
         from app.services.email_service import email_service
         await email_service.send_email(
             db=db,
-            to_email=user.email,
+            to_email=user_email,
             subject="【MediCareAI-Agent】账户已被移除",
             html_content=f"""<!DOCTYPE html>
 <html><body style="font-family:Arial,sans-serif;line-height:1.6;color:#333;">
 <div style="max-width:600px;margin:0 auto;padding:20px;">
 <h2 style="color:#e53935;">账户移除通知</h2>
-<p>尊敬的 {user.full_name}：</p>
+<p>尊敬的 {user_name}：</p>
 <p>您的 MediCareAI-Agent {role_label}账户已被管理员移除。</p>
 <p><strong>移除原因：</strong>{data.reason}</p>
 <p>如有疑问，请联系平台管理员。</p>
@@ -826,9 +824,12 @@ async def kick_user(
         email_sent = True
     except Exception as e:
         import logging
-        logging.getLogger(__name__).error(f"Failed to send kick email to {user.email}: {e}")
+        logging.getLogger(__name__).error(f"Failed to send kick email to {user_email}: {e}")
 
-    return {"success": True, "message": "用户已被移除", "email_sent": email_sent}
+    await db.delete(user)
+    await db.commit()
+
+    return {"success": True, "message": "用户已删除", "email_sent": email_sent}
 
 
 # ─── Doctor Verification ──────────────────────────────────────

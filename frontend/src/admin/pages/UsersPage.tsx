@@ -20,11 +20,18 @@ const ROLE_LABELS: Record<string, { label: string; color: string }> = {
   admin: { label: '管理员', color: '#EF4444' },
 };
 
-const STATUS_LABELS: Record<string, { label: string; color: 'success' | 'error' | 'warning' | 'default' }> = {
-  active: { label: '正常', color: 'success' },
-  inactive: { label: '禁用', color: 'error' },
-  pending: { label: '待审核', color: 'warning' },
-};
+function getStatusChip(user: UserItem) {
+  if (user.status === 'inactive') {
+    return <Chip size="small" label="禁用" color="error" sx={{ fontWeight: 500 }} />;
+  }
+  if (user.role === 'patient' && !user.email_verified) {
+    return <Chip size="small" label="待验证" color="warning" sx={{ fontWeight: 500 }} />;
+  }
+  if (user.role === 'doctor' && !user.is_verified) {
+    return <Chip size="small" label="待审核" color="warning" sx={{ fontWeight: 500 }} />;
+  }
+  return <Chip size="small" label="正常" color="success" sx={{ fontWeight: 500 }} />;
+}
 
 function getRoleLabel(role: string) {
   return ROLE_LABELS[role]?.label || role;
@@ -32,11 +39,6 @@ function getRoleLabel(role: string) {
 
 function getRoleColor(role: string) {
   return ROLE_LABELS[role]?.color || '#64748B';
-}
-
-function getStatusChip(status: string) {
-  const cfg = STATUS_LABELS[status] || { label: status, color: 'default' as const };
-  return <Chip size="small" label={cfg.label} color={cfg.color} sx={{ fontWeight: 500 }} />;
 }
 
 export default function UsersPage() {
@@ -295,7 +297,7 @@ export default function UsersPage() {
                           }}
                         />
                       </TableCell>
-                      <TableCell>{getStatusChip(u.status)}</TableCell>
+                      <TableCell>{getStatusChip(u)}</TableCell>
                       <TableCell>
                         {u.is_verified ? (
                           <Chip size="small" label="已认证" color="success" variant="outlined" />
@@ -454,7 +456,7 @@ export default function UsersPage() {
                 onChange={(e) => setKickReasonOther(e.target.value)} />
             )}
             <Alert severity="warning" sx={{ fontSize: '0.85rem' }}>
-              ✉️ 将发送邮件通知用户账户已被移除。该操作不可撤销，用户数据将保留但无法登录。
+              ✉️ 将发送邮件通知用户账户已被删除。该操作不可撤销，用户及相关数据将被彻底清除。
             </Alert>
           </Box>
         </DialogContent>

@@ -26,7 +26,7 @@ class UserRole(str, PyEnum):
 class UserStatus(str, PyEnum):
     ACTIVE = "active"
     INACTIVE = "inactive"
-    PENDING = "pending"
+    PENDING = "pending"  # deprecated — use is_verified/email_verified for sub-states
 
 
 class User(Base):
@@ -38,7 +38,7 @@ class User(Base):
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.PATIENT, nullable=False)
-    status: Mapped[UserStatus] = mapped_column(Enum(UserStatus), default=UserStatus.PENDING, nullable=False)
+    status: Mapped[UserStatus] = mapped_column(Enum(UserStatus), default=UserStatus.ACTIVE, nullable=False)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Doctor-specific fields

@@ -99,7 +99,7 @@ async def register(
         role=data.role,
         status=UserStatus.ACTIVE,
         is_verified=False,
-        email_verified=is_doctor,  # doctors skip email verify, use admin verify
+        email_verified=is_doctor,
         license_number=data.license_number,
         hospital=data.hospital,
         department=data.department,
@@ -271,11 +271,6 @@ async def login(
 
     # Phase 1.5: block PENDING/INACTIVE doctors + unverified patients
     if user.role == UserRole.DOCTOR:
-        if user.status == UserStatus.PENDING:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="您的账户正在审核中，请等待管理员审批。",
-            )
         if user.status == UserStatus.INACTIVE:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

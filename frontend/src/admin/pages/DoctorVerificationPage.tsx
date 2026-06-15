@@ -22,16 +22,13 @@ const STATUS_TABS = [
 ];
 
 function getStatusChip(status: string, isVerified: boolean) {
-  if (status === 'pending') {
-    return <Chip size="small" label="待审核" color="warning" sx={{ fontWeight: 500 }} />;
-  }
   if (status === 'inactive') {
     return <Chip size="small" label="未通过" color="error" sx={{ fontWeight: 500 }} />;
   }
   if (isVerified) {
     return <Chip size="small" label="已认证" color="success" sx={{ fontWeight: 500 }} />;
   }
-  return <Chip size="small" label="正常" color="default" sx={{ fontWeight: 500 }} />;
+  return <Chip size="small" label="待审核" color="warning" sx={{ fontWeight: 500 }} />;
 }
 
 export default function DoctorVerificationPage() {
@@ -71,7 +68,7 @@ export default function DoctorVerificationPage() {
     if (search) params.search = search;
 
     if (tab === 'pending') {
-      params.status = 'pending';
+      params.is_verified = false;
     } else if (tab === 'verified') {
       params.is_verified = true;
     } else if (tab === 'rejected') {
@@ -108,7 +105,7 @@ export default function DoctorVerificationPage() {
     if (search) params.search = search;
 
     if (tab === 'pending') {
-      params.status = 'pending';
+      params.is_verified = false;
     } else if (tab === 'verified') {
       params.is_verified = true;
     } else if (tab === 'rejected') {
@@ -198,7 +195,7 @@ export default function DoctorVerificationPage() {
 
   const counts = {
     all: doctors.length,
-    pending: doctors.filter((d) => d.status === 'pending').length,
+    pending: doctors.filter((d) => !d.is_verified && d.status !== 'inactive').length,
     verified: doctors.filter((d) => d.is_verified).length,
     rejected: doctors.filter((d) => d.status === 'inactive' && !d.is_verified).length,
   };
@@ -322,7 +319,7 @@ export default function DoctorVerificationPage() {
                       </TableCell>
                       <TableCell align="right">
                         <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 0.5 }}>
-                          {d.status === 'pending' && (
+                          {!d.is_verified && d.status !== 'inactive' && (
                             <>
                               <Tooltip title="通过认证">
                                 <IconButton
@@ -441,9 +438,8 @@ export default function DoctorVerificationPage() {
                 label="状态"
                 onChange={(e) => setForm({ ...form, status: e.target.value })}
               >
-                <MenuItem value="active">正常</MenuItem>
-                <MenuItem value="inactive">禁用</MenuItem>
-                <MenuItem value="pending">待审核</MenuItem>
+<MenuItem value="active">正常</MenuItem>
+<MenuItem value="inactive">禁用</MenuItem>
               </Select>
             </FormControl>
             <FormControlLabel

@@ -128,7 +128,7 @@ class UserAdminUpdate(BaseModel):
     """Admin update user request (Phase 1.5 expanded)."""
 
     full_name: str | None = Field(None, min_length=1, max_length=255)
-    status: str | None = Field(None, pattern=r"^(active|inactive|pending)$")
+    status: str | None = Field(None, pattern=r"^(active|inactive)$")
     is_verified: bool | None = None
     license_number: str | None = Field(None, max_length=100)
     hospital: str | None = Field(None, max_length=255)
