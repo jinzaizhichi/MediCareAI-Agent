@@ -88,6 +88,18 @@ export async function register(data: RegisterRequest): Promise<{ message?: strin
   return json;
 }
 
+export async function registerDoctor(data: RegisterRequest, files: File[]): Promise<{ message: string }> {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(data)) {
+    if (v !== undefined && v !== null && v !== '') fd.append(k, String(v));
+  }
+  for (const f of files) fd.append('upload_files', f);
+  const res = await fetch(`${API_BASE}/auth/register/doctor`, { method: 'POST', body: fd });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.detail || json.message || '注册失败');
+  return json;
+}
+
 export async function getMe(): Promise<UserInfo> {
   const token = localStorage.getItem('access_token');
   const res = await fetch(`${API_BASE}/auth/me`, {

@@ -71,3 +71,4 @@ npm-debug.log*
 # Build artifacts
 frontend/dist/
 frontend/build/
+uploads/

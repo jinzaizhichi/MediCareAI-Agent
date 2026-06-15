@@ -47,6 +47,10 @@ const LoginPage: React.FC = () => {
       setSnackbar({ open: true, message: '邮箱验证成功！请登录您的账号。', severity: 'success' });
       window.history.replaceState({}, '', '/login');
     }
+    if (params.get('doctor_confirmed') === 'true') {
+      setSnackbar({ open: true, message: '医生认证确认成功！请登录您的账号。', severity: 'success' });
+      window.history.replaceState({}, '', '/login');
+    }
   }, [location.state, location.search]);
 
   const handleTogglePassword = () => setShowPassword((prev) => !prev);

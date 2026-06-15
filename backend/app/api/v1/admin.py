@@ -868,8 +868,12 @@ async def verify_doctor(
     data: DoctorVerifyRequest,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
-) -> User:
-    """Approve or reject a doctor's verification application."""
+) -> dict:
+    """Approve or reject a doctor's verification application.
+
+    approve: set is_verified=True, generate confirmation token, send email
+    reject: delete user + local files + send rejection email
+    """
     result = await db.execute(
         select(User).where(User.id == doctor_id, User.role == UserRole.DOCTOR)
     )
@@ -880,39 +884,74 @@ async def verify_doctor(
             detail="Doctor not found",
         )
 
-    previous_verified = doctor.is_verified
     if data.action == "approve":
         doctor.is_verified = True
         doctor.status = "active"
-        audit_action = AuditActionType.DOCTOR_VERIFY
-    else:
-        doctor.is_verified = False
-        doctor.status = "inactive"
-        audit_action = AuditActionType.DOCTOR_REJECT
+        import secrets
+        token = secrets.token_urlsafe(48)
+        doctor.doctor_confirmation_token = token
+        doctor.doctor_confirmation_token_expires = datetime.now(timezone.utc) + timedelta(hours=24)
+        await db.commit()
 
+        base_url = "https://openmedicareagent.online"
+        confirm_url = f"{base_url}/api/v1/auth/doctor-confirm?token={token}"
+        try:
+            from app.services.email_service import email_service
+            await email_service.send_email(
+                db=db, to_email=doctor.email,
+                subject="【MediCareAI-Agent】医生认证已通过，请确认",
+                html_content=f"""<!DOCTYPE html>
+<html><body style="font-family:Arial,sans-serif;line-height:1.6;color:#333;">
+<div style="max-width:600px;margin:0 auto;padding:20px;">
+<h2 style="color:#10B981;">医生认证已通过</h2>
+<p>尊敬的 {doctor.full_name}：</p>
+<p>恭喜！您的医生认证已通过管理员审核。</p>
+<p>请点击下方按钮完成注册确认：</p>
+<p style="text-align:center;margin:30px 0;">
+  <a href="{confirm_url}" style="background:#10B981;color:white;padding:12px 32px;border-radius:6px;text-decoration:none;font-size:16px;">确认注册</a>
+</p>
+<p>此链接 24 小时内有效。</p>
+</div></body></html>""",
+            )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Failed to send approval email: {e}")
+
+        await db.refresh(doctor)
+        return {"success": True, "message": "已通过，确认邮件已发送", "action": "approve"}
+
+    # Reject: full delete
+    doctor_email = doctor.email
+    doctor_name = doctor.full_name
+    reason = data.reason or "未说明"
+    import os, shutil
+    upload_dir = f"backend/uploads/credentials/{doctor.id}"
+    if os.path.exists(upload_dir):
+        shutil.rmtree(upload_dir)
+
+    await db.delete(doctor)
     await db.commit()
-    await db.refresh(doctor)
 
-    # Record audit log
-    await AuditService.record(
-        db,
-        action=audit_action,
-        user_id=str(current_user.id),
-        user_email=current_user.email,
-        user_role=current_user.role.value,
-        resource_type=AuditResourceType.DOCTOR,
-        resource_id=doctor_id,
-        details={
-            "doctor_email": doctor.email,
-            "doctor_name": doctor.name,
-            "action": data.action,
-            "reason": data.reason,
-            "previous_verified": previous_verified,
-        },
-    )
-    await db.commit()
+    try:
+        from app.services.email_service import email_service
+        await email_service.send_email(
+            db=db, to_email=doctor_email,
+            subject="【MediCareAI-Agent】医生认证未通过",
+            html_content=f"""<!DOCTYPE html>
+<html><body style="font-family:Arial,sans-serif;line-height:1.6;color:#333;">
+<div style="max-width:600px;margin:0 auto;padding:20px;">
+<h2 style="color:#e53935;">医生认证未通过</h2>
+<p>尊敬的 {doctor_name}：</p>
+<p>抱歉，您的医生认证申请未被通过。</p>
+<p><strong>原因：</strong>{reason}</p>
+<p>您可以修改信息后重新注册。</p>
+</div></body></html>""",
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Failed to send rejection email: {e}")
 
-    return doctor
+    return {"success": True, "message": "已驳回并删除", "action": "reject"}
 
 
 # ─── Knowledge Base Management ─────────────────────────────────

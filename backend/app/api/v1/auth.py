@@ -168,6 +168,113 @@ async def register(
         return {"message": "注册成功，但验证邮件发送失败。请稍后在登录页面点击「重新发送验证邮件」，或联系管理员。"}
 
 
+@router.post("/register/doctor", status_code=status.HTTP_201_CREATED)
+async def register_doctor(
+    email: str = Form(...),
+    password: str = Form(..., min_length=8, max_length=128),
+    full_name: str = Form(...),
+    hospital: str = Form(...),
+    department: str = Form(...),
+    license_number: str = Form(...),
+    title: str = Form(...),
+    province: str = Form(...),
+    city: str = Form(...),
+    district: str = Form(...),
+    upload_files: list[UploadFile] = File(...),
+    phone: str | None = Form(None),
+    age_years: int | None = Form(None),
+    age_months: int | None = Form(None),
+    gender: str | None = Form(None),
+    street: str | None = Form(None),
+    education: str | None = Form(None),
+    years_of_practice: int | None = Form(None),
+    specialties: str | None = Form(None),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Register a doctor with credential file uploads (local storage)."""
+    existing = await db.scalar(
+        select(User).where(User.email == email, User.role == UserRole.DOCTOR)
+    )
+    if existing:
+        raise HTTPException(status_code=409, detail="该邮箱已注册医生账号")
+
+    MAX_FILE = 5 * 1024 * 1024
+    MAX_TOTAL = 20 * 1024 * 1024
+    ALLOWED = {"image/jpeg", "image/png", "application/pdf"}
+    total = 0
+    for f in upload_files:
+        content = await f.read()
+        total += len(content)
+        if len(content) > MAX_FILE:
+            raise HTTPException(status_code=413, detail=f"文件 {f.filename} 超过 5MB")
+        if f.content_type and f.content_type not in ALLOWED:
+            raise HTTPException(status_code=400, detail=f"不支持格式: {f.content_type}")
+        await f.seek(0)
+    if total > MAX_TOTAL:
+        raise HTTPException(status_code=413, detail="总量超过 20MB")
+
+    user = User(
+        email=email, hashed_password=get_password_hash(password),
+        full_name=full_name, role=UserRole.DOCTOR,
+        status=UserStatus.ACTIVE, is_verified=False, email_verified=True,
+        hospital=hospital, department=department,
+        license_number=license_number, title=title,
+        province=province, city=city, district=district,
+        phone=phone, street=street, education=education,
+        age_years=age_years, age_months=age_months, gender=gender,
+        years_of_practice=years_of_practice, specialties=specialties,
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+
+    import os
+    upload_dir = f"backend/uploads/credentials/{user.id}"
+    os.makedirs(upload_dir, exist_ok=True)
+
+    for f in upload_files:
+        await f.seek(0)
+        content = await f.read()
+        safe_name = os.path.basename(f.filename or "credential")
+        file_path = os.path.join(upload_dir, safe_name)
+        with open(file_path, "wb") as fh:
+            fh.write(content)
+        att = UserAttachment(
+            user_id=user.id, file_name=safe_name,
+            file_url=f"/uploads/credentials/{user.id}/{safe_name}",
+            file_size=len(content), mime_type=f.content_type,
+            category="doctor_license", label=f.filename,
+        )
+        db.add(att)
+    await db.commit()
+
+    return {"message": "注册申请已提交，请等待管理员审核。审核通过后请查收确认邮件。"}
+
+
+@router.get("/doctor-confirm")
+async def doctor_confirm(
+    token: Annotated[str, Query(min_length=1)],
+    db: AsyncSession = Depends(get_db),
+):
+    """Doctor clicks email confirmation link after admin approval."""
+    result = await db.execute(
+        select(User).where(User.doctor_confirmation_token == token)
+    )
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="无效的确认链接")
+    if user.doctor_confirmation_token_expires and user.doctor_confirmation_token_expires < datetime.now(timezone.utc):
+        raise HTTPException(status_code=410, detail="确认链接已过期，请联系管理员重新发送")
+
+    user.email_verified = True
+    user.doctor_confirmation_token = None
+    user.doctor_confirmation_token_expires = None
+    await db.commit()
+
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/login?doctor_confirmed=true", status_code=302)
+
+
 @router.get("/verify-email")
 async def verify_email(
     token: Annotated[str, Query(min_length=1)],

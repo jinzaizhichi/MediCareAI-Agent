@@ -76,6 +76,8 @@ class User(Base):
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     verification_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
     verification_token_expires: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    doctor_confirmation_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    doctor_confirmation_token_expires: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     role_switches: Mapped[list["RoleSwitchLog"]] = relationship(

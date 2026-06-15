@@ -7,7 +7,7 @@ import {
 } from '@mui/material';
 import { Visibility, VisibilityOff, Email, Lock, Person, Phone, LocalHospital } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { register, type RegisterRequest } from '../api/auth';
+import { register, registerDoctor, type RegisterRequest } from '../api/auth';
 
 type Gender = 'male' | 'female';
 type Role = 'patient' | 'doctor';
@@ -163,7 +163,10 @@ export default function RegisterPage() {
         payload.years_of_practice = formData.years_of_practice ? parseInt(formData.years_of_practice) : null;
         payload.specialties = formData.specialties || undefined;
       }
-      const result = await register(payload);
+      const files = isDoctor ? ((formData as any).uploadFiles as File[] | undefined) : undefined;
+      const result = files && files.length > 0
+        ? await registerDoctor(payload, files)
+        : await register(payload);
       if (result.access_token) {
         navigate('/chat', { replace: true });
       } else {
@@ -318,8 +321,31 @@ export default function RegisterPage() {
                 value={formData.specialties} onChange={setField('specialties')} disabled={submitting}
                 sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
               <Alert severity="info" sx={{ fontSize: '0.85rem' }}>
-                注册成功后需等待管理员审核。审核通过后可登录医生端上传执业证件。
+                请上传执业证件照片（支持 JPG/PNG/PDF，单文件 ≤5MB，总量 ≤20MB）。管理员审核通过后将发送确认邮件。
               </Alert>
+              <Box sx={{ border: '2px dashed #ccc', borderRadius: 2, p: 2, textAlign: 'center' }}>
+                <input
+                  type="file"
+                  id="credential-files"
+                  multiple
+                  accept=".jpg,.jpeg,.png,.pdf"
+                  disabled={submitting}
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    const flist = e.target.files;
+                    if (flist && flist.length > 0) {
+                      setFormData((p) => ({ ...p, uploadFiles: Array.from(flist) as unknown as FileList }));
+                    }
+                  }}
+                />
+                <label htmlFor="credential-files" style={{ cursor: submitting ? 'default' : 'pointer', display: 'block' }}>
+                  <Typography variant="body2" color="text.secondary">
+                    {(formData as any).uploadFiles?.length
+                      ? `已选择 ${(formData as any).uploadFiles.length} 个文件`
+                      : '📎 点击选择证件文件（医师资格证 + 执业证）'}
+                  </Typography>
+                </label>
+              </Box>
             </>
           )}
 
