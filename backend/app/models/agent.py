@@ -11,10 +11,12 @@ These enable true multi-turn, stateful Agent workflows.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from enum import Enum as PyEnum
 
 from sqlalchemy import (
+    Boolean,
+    Date,
     DateTime,
     Enum,
     ForeignKey,
@@ -220,6 +222,89 @@ class PatientHealthProfile(Base):
     )
     updated_by_agent: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
+    # Phase 2a: patient-entered health data
+    height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    weight: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    allergies: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default=list)
+    chronic_diseases: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default=list)
+    current_medications: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default=list)
+
     __table_args__ = (
         Index("ix_patient_health_profiles_patient_id", "patient_id"),
     )
+
+
+class CarePlan(Base):
+    """Treatment / follow-up plan with JSONB task DAG.
+
+    Created by PlanningAgent or manually by doctors.
+    Each plan contains a list of tasks (medication, self_check, follow_up).
+    """
+
+    __tablename__ = "care_plans"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    patient_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    source_session_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("agent_sessions.id", ondelete="SET NULL"), nullable=True
+    )
+
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    diagnosis_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="active")
+    tasks: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default=dict)
+    progress_percent: Mapped[int | None] = mapped_column(Integer, nullable=True, default=0)
+
+    start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    patient: Mapped["User"] = relationship("User", foreign_keys=[patient_id])
+
+
+class MonitoringEvent(Base):
+    """Scheduled reminder or alert event.
+
+    Created when a CarePlan is generated. Scanned periodically by
+    Celery Beat. After triggering, status changes from pending→sent.
+    """
+
+    __tablename__ = "monitoring_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    patient_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    plan_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("care_plans.id", ondelete="SET NULL"), nullable=True
+    )
+
+    event_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+    scheduled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    triggered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending")
+    channel: Mapped[str] = mapped_column(String(20), nullable=True, default="email")
+    retry_count: Mapped[int | None] = mapped_column(Integer, nullable=True, default=0)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    patient: Mapped["User"] = relationship("User", foreign_keys=[patient_id])
