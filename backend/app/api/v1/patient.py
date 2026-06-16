@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +18,17 @@ from app.models.medical_case import MedicalCase
 from app.models.user import User, UserRole
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
+
+
+VALID_CHRONIC_DISEASES = {
+    "E11": "2型糖尿病", "I10": "原发性高血压", "I25": "冠心病",
+    "I50": "慢性心力衰竭", "I48": "心房颤动", "I63": "脑梗死",
+    "E78": "高脂血症", "J44": "慢阻肺", "J45": "支气管哮喘",
+    "N18": "慢性肾病", "K76.0": "脂肪肝", "B18.1": "慢性乙型肝炎",
+    "E05": "甲亢", "E03": "甲减", "M81": "骨质疏松",
+    "M06": "类风湿关节炎", "M17": "膝骨关节炎",
+    "G20": "帕金森病", "F32": "抑郁症", "F41": "焦虑障碍",
+}
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -53,12 +64,12 @@ async def get_profile(
 
 class ProfileUpdateRequest(BaseModel):
     name: str | None = None
-    phone: str | None = None
-    gender: str | None = None
-    height: int | None = None
-    weight: int | None = None
+    phone: str | None = Field(None, max_length=20)
+    gender: str | None = Field(None, pattern=r'^(male|female|男|女)$')
+    height: int | None = Field(None, ge=50, le=300)
+    weight: int | None = Field(None, ge=10, le=500)
     allergies: list[str] | None = None
-    chronic_diseases: list[str] | None = None
+    chronic_diseases: list[dict] | None = None
     medications: list[dict] | None = None
 
 

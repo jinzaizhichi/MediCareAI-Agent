@@ -1,24 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Container,
-  Box,
-  Typography,
-  Card,
-  CardContent,
-  TextField,
-  Button,
-  Chip,
-  IconButton,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Paper,
-  Grid,
-  Stack,
+  Container, Box, Typography, Card, CardContent, TextField, Button, Chip,
+  IconButton, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  Paper, Grid, Stack, FormControl, InputLabel, Select, MenuItem, OutlinedInput, Checkbox, ListItemText,
 } from '@mui/material';
 import ArrowBackIosNewIcon from '@mui/icons-material/ArrowBackIosNew';
 import AddIcon from '@mui/icons-material/Add';
@@ -34,17 +19,40 @@ const warmText = '#5C4033';
 const warmPrimary = '#E8956A';
 const warmBg = '#FFFBF5';
 
+const CHRONIC_DISEASES: { code: string; name: string; category: string }[] = [
+  { code: 'E11', name: '2型糖尿病', category: '内分泌' },
+  { code: 'I10', name: '原发性高血压', category: '心血管' },
+  { code: 'I25', name: '冠心病', category: '心血管' },
+  { code: 'I50', name: '慢性心力衰竭', category: '心血管' },
+  { code: 'I48', name: '心房颤动', category: '心血管' },
+  { code: 'I63', name: '脑梗死(中风)', category: '神经' },
+  { code: 'E78', name: '高脂血症', category: '内分泌' },
+  { code: 'J44', name: '慢阻肺(COPD)', category: '呼吸' },
+  { code: 'J45', name: '支气管哮喘', category: '呼吸' },
+  { code: 'N18', name: '慢性肾病(CKD)', category: '肾脏' },
+  { code: 'K76.0', name: '脂肪肝', category: '消化' },
+  { code: 'B18.1', name: '慢性乙型肝炎', category: '感染' },
+  { code: 'E05', name: '甲亢', category: '内分泌' },
+  { code: 'E03', name: '甲减', category: '内分泌' },
+  { code: 'M81', name: '骨质疏松', category: '骨骼' },
+  { code: 'M06', name: '类风湿关节炎', category: '免疫' },
+  { code: 'M17', name: '膝骨关节炎', category: '骨骼' },
+  { code: 'G20', name: '帕金森病', category: '神经' },
+  { code: 'F32', name: '抑郁症', category: '精神' },
+  { code: 'F41', name: '焦虑障碍', category: '精神' },
+];
+
 const fallbackProfile: PatientProfile = {
   id: 'demo-001',
   name: '张三',
   email: 'zhangsan@example.com',
   phone: '13800138000',
   date_of_birth: '1985-06-15',
-  gender: '男',
+  gender: 'male',
   height: 175,
   weight: 70,
   allergies: ['青霉素', '花生'],
-  chronic_diseases: ['高血压', '2型糖尿病'],
+  chronic_diseases: [{ code: 'E11', name: '2型糖尿病' }, { code: 'I10', name: '原发性高血压' }],
   medications: [
     { name: '氨氯地平片', dosage: '5mg', frequency: '每日一次', start_date: '2023-01-10' },
     { name: '二甲双胍片', dosage: '500mg', frequency: '每日两次', start_date: '2023-02-20' },
@@ -60,7 +68,6 @@ export default function HealthProfilePage() {
   // 用于编辑时的临时状态
   const [editProfile, setEditProfile] = useState<PatientProfile>(fallbackProfile);
   const [newAllergy, setNewAllergy] = useState('');
-  const [newDisease, setNewDisease] = useState('');
 
   useEffect(() => {
     let mounted = true;
@@ -128,20 +135,17 @@ export default function HealthProfilePage() {
     }));
   };
 
-  const handleAddDisease = () => {
-    const val = newDisease.trim();
-    if (!val) return;
+  const handleAddDisease = (code: string, name: string) => {
     setEditProfile((prev) => ({
       ...prev,
-      chronic_diseases: [...(prev.chronic_diseases || []), val],
+      chronic_diseases: [...(prev.chronic_diseases || []), { code, name }],
     }));
-    setNewDisease('');
   };
 
-  const handleRemoveDisease = (index: number) => {
+  const handleRemoveDisease = (code: string) => {
     setEditProfile((prev) => ({
       ...prev,
-      chronic_diseases: (prev.chronic_diseases || []).filter((_, i) => i !== index),
+      chronic_diseases: (prev.chronic_diseases || []).filter((d) => d.code !== code),
     }));
   };
 
@@ -236,39 +240,77 @@ export default function HealthProfilePage() {
                 { label: '姓名', field: 'name' as const, type: 'text' },
                 { label: '邮箱', field: 'email' as const, type: 'email' },
                 { label: '手机', field: 'phone' as const, type: 'tel' },
-                { label: '出生日期', field: 'date_of_birth' as const, type: 'date' },
-                { label: '性别', field: 'gender' as const, type: 'text' },
+              ].map((item) => (
+                <Grid size={{ xs: 12, sm: 6 }} key={item.field}>
+                  {isEditing ? (
+                    <TextField fullWidth label={item.label} type={item.type}
+                      value={display[item.field] ?? ''}
+                      onChange={(e) => handleChange(item.field, e.target.value)}
+                      sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+                  ) : (
+                    <Box>
+                      <Typography variant="caption" sx={{ color: '#8B7355' }}>{item.label}</Typography>
+                      <Typography variant="body1" sx={{ color: warmText, fontWeight: 500 }}>{display[item.field] ?? '—'}</Typography>
+                    </Box>
+                  )}
+                </Grid>
+              ))}
+
+              <Grid size={{ xs: 12, sm: 6 }}>
+                {isEditing ? (
+                  <TextField fullWidth label="出生日期" type="date"
+                    value={display.date_of_birth ?? ''}
+                    onChange={(e) => handleChange('date_of_birth', e.target.value)}
+                    InputLabelProps={{ shrink: true }}
+                    sx={{
+                      '& .MuiOutlinedInput-root': { borderRadius: 2 },
+                      '& .MuiInputLabel-root': { top: -6 },
+                      '& input': { pt: 1 },
+                    }} />
+                ) : (
+                  <Box>
+                    <Typography variant="caption" sx={{ color: '#8B7355' }}>出生日期</Typography>
+                    <Typography variant="body1" sx={{ color: warmText, fontWeight: 500 }}>{display.date_of_birth ?? '—'}</Typography>
+                  </Box>
+                )}
+              </Grid>
+
+              <Grid size={{ xs: 12, sm: 6 }}>
+                {isEditing ? (
+                  <FormControl fullWidth>
+                    <InputLabel>性别</InputLabel>
+                    <Select value={display.gender || ''} label="性别"
+                      onChange={(e) => handleChange('gender', e.target.value)}
+                      sx={{ borderRadius: 2 }}>
+                      <MenuItem value=""><em>请选择</em></MenuItem>
+                      <MenuItem value="male">男</MenuItem>
+                      <MenuItem value="female">女</MenuItem>
+                    </Select>
+                  </FormControl>
+                ) : (
+                  <Box>
+                    <Typography variant="caption" sx={{ color: '#8B7355' }}>性别</Typography>
+                    <Typography variant="body1" sx={{ color: warmText, fontWeight: 500 }}>
+                      {{ male: '男', female: '女' }[display.gender || ''] || display.gender || '—'}
+                    </Typography>
+                  </Box>
+                )}
+              </Grid>
+
+              {[
                 { label: '身高 (cm)', field: 'height' as const, type: 'number' },
                 { label: '体重 (kg)', field: 'weight' as const, type: 'number' },
               ].map((item) => (
                 <Grid size={{ xs: 12, sm: 6 }} key={item.field}>
                   {isEditing ? (
-                    <TextField
-                      fullWidth
-                      label={item.label}
-                      type={item.type}
+                    <TextField fullWidth label={item.label} type={item.type}
                       value={display[item.field] ?? ''}
-                      onChange={(e) =>
-                        handleChange(
-                          item.field,
-                          item.type === 'number' ? Number(e.target.value) : e.target.value
-                        )
-                      }
-                      InputLabelProps={item.type === 'date' ? { shrink: true } : undefined}
-                      sx={{
-                        '& .MuiOutlinedInput-root': {
-                          borderRadius: 2,
-                        },
-                      }}
-                    />
+                      onChange={(e) => handleChange(item.field, Number(e.target.value))}
+                      sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
                   ) : (
                     <Box>
-                      <Typography variant="caption" sx={{ color: '#8B7355' }}>
-                        {item.label}
-                      </Typography>
-                      <Typography variant="body1" sx={{ color: warmText, fontWeight: 500 }}>
-                        {display[item.field] ?? '—'}
-                      </Typography>
+                      <Typography variant="caption" sx={{ color: '#8B7355' }}>{item.label}</Typography>
+                      <Typography variant="body1" sx={{ color: warmText, fontWeight: 500 }}>{display[item.field] ?? '—'}</Typography>
                     </Box>
                   )}
                 </Grid>
@@ -340,11 +382,11 @@ export default function HealthProfilePage() {
               慢性病
             </Typography>
             <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
-              {(display.chronic_diseases || []).map((disease, idx) => (
+              {(display.chronic_diseases || []).map((d) => (
                 <Chip
-                  key={`${disease}-${idx}`}
-                  label={disease}
-                  onDelete={isEditing ? () => handleRemoveDisease(idx) : undefined}
+                  key={d.code}
+                  label={`${d.name} (${d.code})`}
+                  onDelete={isEditing ? () => handleRemoveDisease(d.code) : undefined}
                   sx={{
                     bgcolor: 'rgba(139,115,85,0.12)',
                     color: '#8B7355',
@@ -354,37 +396,32 @@ export default function HealthProfilePage() {
                 />
               ))}
               {!(display.chronic_diseases || []).length && !isEditing && (
-                <Typography variant="body2" sx={{ color: '#8B7355' }}>
-                  暂无记录
-                </Typography>
+                <Typography variant="body2" sx={{ color: '#8B7355' }}>暂无记录</Typography>
               )}
             </Stack>
             {isEditing && (
-              <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
-                <TextField
-                  size="small"
-                  placeholder="添加慢性病"
-                  value={newDisease}
-                  onChange={(e) => setNewDisease(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleAddDisease();
+              <FormControl fullWidth sx={{ mt: 2 }}>
+                <InputLabel>选择慢性病</InputLabel>
+                <Select
+                  multiple
+                  value={(editProfile.chronic_diseases || []).map((d) => d.code)}
+                  onChange={(e) => {
+                    const codes = e.target.value as string[];
+                    const selected = CHRONIC_DISEASES.filter((d) => codes.includes(d.code));
+                    setEditProfile((prev) => ({ ...prev, chronic_diseases: selected.map((s) => ({ code: s.code, name: s.name })) }));
                   }}
-                  sx={{ flex: 1, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                />
-                <Button
-                  variant="contained"
-                  startIcon={<AddIcon />}
-                  onClick={handleAddDisease}
-                  sx={{
-                    bgcolor: warmPrimary,
-                    '&:hover': { bgcolor: '#D4835A' },
-                    borderRadius: 2,
-                    textTransform: 'none',
-                  }}
+                  input={<OutlinedInput label="选择慢性病" />}
+                  renderValue={(selected) => selected.map((c) => CHRONIC_DISEASES.find((d) => d.code === c)?.name).join(', ')}
+                  sx={{ borderRadius: 2 }}
                 >
-                  添加
-                </Button>
-              </Box>
+                  {CHRONIC_DISEASES.map((d) => (
+                    <MenuItem key={d.code} value={d.code}>
+                      <Checkbox checked={(editProfile.chronic_diseases || []).some((cd) => cd.code === d.code)} />
+                      <ListItemText primary={`${d.name} (${d.code})`} secondary={d.category} />
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
             )}
           </CardContent>
         </Card>

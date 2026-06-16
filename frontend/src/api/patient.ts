@@ -14,7 +14,7 @@ export interface PatientProfile {
   height?: number;
   weight?: number;
   allergies?: string[];
-  chronic_diseases?: string[];
+  chronic_diseases?: { code: string; name: string }[];
   medications?: Array<{
     name: string;
     dosage: string;
