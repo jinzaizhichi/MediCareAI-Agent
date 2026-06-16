@@ -17,7 +17,7 @@ from app.models.agent import CarePlan, MonitoringEvent, PatientHealthProfile
 from app.models.medical_case import MedicalCase
 from app.models.user import User, UserRole
 
-router = APIRouter(prefix="/patient", dependencies=[Depends(get_current_user)])
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 # ═══════════════════════════════════════════════════════════════
