@@ -258,15 +258,15 @@ export default function HealthProfilePage() {
 
               <Grid size={{ xs: 12, sm: 6 }}>
                 {isEditing ? (
-                  <TextField fullWidth label="出生日期" type="date"
-                    value={display.date_of_birth ?? ''}
-                    onChange={(e) => handleChange('date_of_birth', e.target.value)}
-                    InputLabelProps={{ shrink: true }}
-                    sx={{
-                      '& .MuiOutlinedInput-root': { borderRadius: 2 },
-                      '& .MuiInputLabel-root': { top: -6 },
-                      '& input': { pt: 1 },
-                    }} />
+                  <FormControl fullWidth>
+                    <Typography variant="caption" sx={{ mb: 0.5, color: 'text.secondary' }}>
+                      出生日期
+                    </Typography>
+                    <TextField fullWidth type="date"
+                      value={display.date_of_birth ?? ''}
+                      onChange={(e) => handleChange('date_of_birth', e.target.value)}
+                      sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+                  </FormControl>
                 ) : (
                   <Box>
                     <Typography variant="caption" sx={{ color: '#8B7355' }}>出生日期</Typography>
