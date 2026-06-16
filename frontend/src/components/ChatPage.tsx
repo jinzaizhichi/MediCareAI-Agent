@@ -832,9 +832,10 @@ export default function ChatPage() {
         sessions={sessions}
         currentSessionId={currentSessionId}
         onSelectSession={setCurrentSessionId}
-        onNewChat={handleNewChat}
+        onNewSession={handleNewChat}
         mobileOpen={mobileOpen}
-        onCloseMobile={() => setMobileOpen(false)}
+        onMobileClose={() => setMobileOpen(false)}
+        isGuest={!getToken()}
       />
       <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <AppBar position="static" elevation={0} sx={{ bgcolor: 'background.paper', borderBottom: '1px solid #F5E6D3' }}>

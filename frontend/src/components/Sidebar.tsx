@@ -1,25 +1,17 @@
 import { useState } from 'react';
 import {
-  Box,
-  Drawer,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemText,
-  Typography,
-  IconButton,
-  Divider,
-  Button,
-  Collapse,
+  Box, Drawer, List, ListItem, ListItemButton, ListItemText,
+  Typography, IconButton, Divider, Button, Collapse,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ChatIcon from '@mui/icons-material/Chat';
-import HealingIcon from '@mui/icons-material/Healing';
-import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
-import MedicationIcon from '@mui/icons-material/Medication';
+import LogoutIcon from '@mui/icons-material/Logout';
+import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import type { ChatSession } from '../types/agent';
+import { logout } from '../api/auth';
+import { useNavigate } from 'react-router-dom';
 
 interface Props {
   sessions: ChatSession[];
@@ -29,6 +21,7 @@ interface Props {
   mobileOpen: boolean;
   onMobileClose: () => void;
   drawerWidth?: number;
+  isGuest: boolean;
 }
 
 const DRAWER_WIDTH = 260;
@@ -52,16 +45,17 @@ function groupSessionsByDate(sessions: ChatSession[]): Record<string, ChatSessio
 }
 
 export default function Sidebar({
-  sessions,
-  currentSessionId,
-  onSelectSession,
-  onNewSession,
-  mobileOpen,
-  onMobileClose,
-  drawerWidth = DRAWER_WIDTH,
+  sessions, currentSessionId, onSelectSession, onNewSession,
+  mobileOpen, onMobileClose, drawerWidth = DRAWER_WIDTH, isGuest,
 }: Props) {
   const [historyOpen, setHistoryOpen] = useState(true);
   const grouped = groupSessionsByDate(sessions);
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login', { replace: true });
+  };
 
   const drawerContent = (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -125,26 +119,17 @@ export default function Sidebar({
       <Divider sx={{ borderColor: '#F5E6D3' }} />
 
       <Box sx={{ p: 1 }}>
-        <List dense>
-          <ListItem disablePadding>
-            <ListItemButton sx={{ borderRadius: 2, py: 0.75 }}>
-              <HealingIcon sx={{ fontSize: 18, color: 'primary.main', mr: 1.5 }} />
-              <ListItemText primary="📊 健康档案" slotProps={{ primary: { variant: 'body2', sx: { color: 'text.primary' } } }} />
-            </ListItemButton>
-          </ListItem>
-          <ListItem disablePadding>
-            <ListItemButton sx={{ borderRadius: 2, py: 0.75 }}>
-              <CalendarMonthIcon sx={{ fontSize: 18, color: 'primary.main', mr: 1.5 }} />
-              <ListItemText primary="📅 随访计划" slotProps={{ primary: { variant: 'body2', sx: { color: 'text.primary' } } }} />
-            </ListItemButton>
-          </ListItem>
-          <ListItem disablePadding>
-            <ListItemButton sx={{ borderRadius: 2, py: 0.75 }}>
-              <MedicationIcon sx={{ fontSize: 18, color: 'primary.main', mr: 1.5 }} />
-              <ListItemText primary="💊 用药提醒" slotProps={{ primary: { variant: 'body2', sx: { color: 'text.primary' } } }} />
-            </ListItemButton>
-          </ListItem>
-        </List>
+        {isGuest ? (
+          <Button fullWidth variant="outlined" startIcon={<PersonAddIcon />} onClick={() => navigate('/login')}
+            sx={{ borderRadius: 2, textTransform: 'none', color: 'primary.main', borderColor: 'primary.main' }}>
+            注册 / 登录
+          </Button>
+        ) : (
+          <Button fullWidth variant="text" startIcon={<LogoutIcon />} onClick={handleLogout}
+            sx={{ borderRadius: 2, textTransform: 'none', color: 'text.secondary' }}>
+            登出
+          </Button>
+        )}
       </Box>
     </Box>
   );
