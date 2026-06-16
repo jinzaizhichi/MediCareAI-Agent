@@ -24,65 +24,42 @@ router = APIRouter(dependencies=[Depends(get_current_user)])
 # Health Profile
 # ═══════════════════════════════════════════════════════════════
 
-class HealthProfileResponse(BaseModel):
-    user: dict
-    profile: dict | None
-    health: dict | None
-
-    model_config = {"from_attributes": True}
-
-
-def _build_profile_response(user: User, profile: PatientHealthProfile | None) -> dict:
-    return {
-        "user": {
-            "name": user.full_name,
-            "email": user.email,
-            "phone": user.phone,
-            "gender": user.gender,
-            "age_years": user.age_years,
-        },
-        "profile": {
-            "height": profile.height if profile else None,
-            "weight": profile.weight if profile else None,
-            "allergies": profile.allergies if profile else [],
-            "chronic_diseases": profile.chronic_diseases if profile else [],
-            "current_medications": profile.current_medications if profile else [],
-        } if profile else None,
-        "health": {
-            "health_summary": profile.health_summary,
-            "disease_patterns": profile.disease_patterns,
-            "medication_history": profile.medication_history,
-            "risk_factors": profile.risk_factors,
-            "last_updated": profile.last_updated.isoformat() if profile and profile.last_updated else None,
-        } if profile else None,
-    }
-
-
 @router.get("/profile")
 async def get_profile(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Get patient health profile (User info + HealthProfile)."""
+    """Get patient health profile (flat format, matches frontend PatientProfile)."""
     result = await db.execute(
         select(PatientHealthProfile).where(
             PatientHealthProfile.patient_id == current_user.id
         )
     )
     profile = result.scalar_one_or_none()
-    return _build_profile_response(current_user, profile)
+    return {
+        "id": str(current_user.id),
+        "name": current_user.full_name,
+        "email": current_user.email,
+        "phone": current_user.phone,
+        "date_of_birth": getattr(current_user, 'date_of_birth', None),
+        "gender": current_user.gender,
+        "height": profile.height if profile else None,
+        "weight": profile.weight if profile else None,
+        "allergies": profile.allergies if profile else [],
+        "chronic_diseases": profile.chronic_diseases if profile else [],
+        "medications": profile.current_medications if profile else [],
+    }
 
 
 class ProfileUpdateRequest(BaseModel):
     name: str | None = None
     phone: str | None = None
     gender: str | None = None
-    age_years: int | None = None
     height: int | None = None
     weight: int | None = None
     allergies: list[str] | None = None
     chronic_diseases: list[str] | None = None
-    current_medications: list[dict] | None = None
+    medications: list[dict] | None = None
 
 
 @router.patch("/profile")
@@ -91,15 +68,13 @@ async def update_profile(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Update patient profile (Users table + HealthProfile table)."""
+    """Update patient profile (flat format)."""
     if data.name is not None:
         current_user.full_name = data.name
     if data.phone is not None:
         current_user.phone = data.phone
     if data.gender is not None:
         current_user.gender = data.gender
-    if data.age_years is not None:
-        current_user.age_years = data.age_years
 
     profile = await db.scalar(
         select(PatientHealthProfile).where(
@@ -118,14 +93,25 @@ async def update_profile(
         profile.allergies = data.allergies
     if data.chronic_diseases is not None:
         profile.chronic_diseases = data.chronic_diseases
-    if data.current_medications is not None:
-        profile.current_medications = data.current_medications
+    if data.medications is not None:
+        profile.current_medications = data.medications
     profile.last_updated = datetime.now(timezone.utc)
 
     await db.commit()
     await db.refresh(current_user)
     await db.refresh(profile)
-    return _build_profile_response(current_user, profile)
+    return {
+        "id": str(current_user.id),
+        "name": current_user.full_name,
+        "email": current_user.email,
+        "phone": current_user.phone,
+        "gender": current_user.gender,
+        "height": profile.height,
+        "weight": profile.weight,
+        "allergies": profile.allergies or [],
+        "chronic_diseases": profile.chronic_diseases or [],
+        "medications": profile.current_medications or [],
+    }
 
 
 # ═══════════════════════════════════════════════════════════════
