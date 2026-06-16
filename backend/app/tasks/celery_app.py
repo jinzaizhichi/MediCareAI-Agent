@@ -19,6 +19,7 @@ celery_app = Celery(
         "app.tasks.agent",
         "app.tasks.audit",
         "app.tasks.planning",
+        "app.tasks.monitoring",
     ],
 )
 
@@ -36,6 +37,11 @@ celery_app.conf.update(
         "cleanup-audit-logs-daily": {
             "task": "app.tasks.audit.cleanup_old_audit_logs",
             "schedule": crontab(hour=3, minute=0),
+            "kwargs": {},
+        },
+        "scan-pending-events": {
+            "task": "app.tasks.monitoring.scan_pending_events",
+            "schedule": crontab(minute="*/30"),
             "kwargs": {},
         },
     },

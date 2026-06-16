@@ -1017,6 +1017,75 @@ Generate a concise health_summary (2-3 paragraphs) and populate:
             await db.commit()
             return {"message": "Health profile updated", "summary_length": len(result.content)}
 
+    async def generate_care_plan(self, session_id: str, patient_id: str) -> dict:
+        """Generate a care plan from a diagnosis session and create monitoring events."""
+        from app.models.agent import CarePlan, MonitoringEvent
+        from app.db.session import async_session_maker
+        import json
+
+        async with async_session_maker() as db:
+            llm = LLMService(provider=self.provider, db=db)
+
+            # Read diagnosis from session
+            from app.models.agent import AgentSession
+            session = await db.get(AgentSession, session_id)
+            if not session or not session.structured_output:
+                return {"message": "No diagnosis found for session"}
+
+            diag = session.structured_output
+            diag_text = json.dumps(diag.get("diagnosis_summary", str(diag)), ensure_ascii=False)
+
+            # Generate plan via LLM
+            prompt = f"""Based on this diagnosis, generate a structured care plan:
+Diagnosis: {diag_text}
+
+Output a JSON object with:
+- title: short plan name
+- description: 1-2 sentence overview
+- tasks: list of tasks, each with {{id, type (medication/self_check/follow_up), description, frequency, duration_days, start_date}}"""
+
+            result = await llm.chat(messages=[{"role": "user", "content": prompt}], max_tokens=1024)
+
+            try:
+                plan_data = json.loads(result.content)
+            except json.JSONDecodeError:
+                return {"message": "Failed to parse AI plan output"}
+
+            plan = CarePlan(
+                patient_id=patient_id,
+                source_session_id=session_id,
+                title=plan_data.get("title", "护理计划"),
+                description=plan_data.get("description", ""),
+                diagnosis_summary=diag_text[:500],
+                tasks=plan_data,
+                created_by="ai",
+            )
+            db.add(plan)
+            await db.commit()
+            await db.refresh(plan)
+
+            # Create monitoring events from tasks
+            events_created = 0
+            tasks = plan_data.get("tasks", [])
+            from datetime import timedelta
+            for task in tasks:
+                scheduled = datetime.now(timezone.utc) + timedelta(hours=1)
+                if task.get("type") == "medication":
+                    evt = MonitoringEvent(
+                        patient_id=patient_id, plan_id=plan.id,
+                        event_type="medication_reminder",
+                        payload=task, scheduled_at=scheduled,
+                    )
+                    db.add(evt)
+                    events_created += 1
+            await db.commit()
+
+            return {
+                "plan_id": str(plan.id),
+                "events_created": events_created,
+                "tasks": len(tasks),
+            }
+
 
 # ---------------------------------------------------------------------------
 # Monitoring Agent

@@ -125,21 +125,21 @@ export default function Sidebar({
         <Box sx={{ p: 1 }}>
           <List dense>
             <ListItem disablePadding>
-              <ListItemButton disabled sx={{ borderRadius: 2, py: 0.75 }}>
-                <HealingIcon sx={{ fontSize: 18, color: 'text.disabled', mr: 1.5 }} />
-                <ListItemText primary="📊 健康档案" slotProps={{ primary: { variant: 'body2', sx: { color: 'text.disabled' } } }} />
+              <ListItemButton onClick={() => navigate('/health')} sx={{ borderRadius: 2, py: 0.75 }}>
+                <HealingIcon sx={{ fontSize: 18, color: 'primary.main', mr: 1.5 }} />
+                <ListItemText primary="📊 健康档案" slotProps={{ primary: { variant: 'body2', sx: { color: 'text.primary' } } }} />
               </ListItemButton>
             </ListItem>
             <ListItem disablePadding>
-              <ListItemButton disabled sx={{ borderRadius: 2, py: 0.75 }}>
-                <CalendarMonthIcon sx={{ fontSize: 18, color: 'text.disabled', mr: 1.5 }} />
-                <ListItemText primary="📅 随访计划" slotProps={{ primary: { variant: 'body2', sx: { color: 'text.disabled' } } }} />
+              <ListItemButton onClick={() => navigate('/followups')} sx={{ borderRadius: 2, py: 0.75 }}>
+                <CalendarMonthIcon sx={{ fontSize: 18, color: 'primary.main', mr: 1.5 }} />
+                <ListItemText primary="📅 随访计划" slotProps={{ primary: { variant: 'body2', sx: { color: 'text.primary' } } }} />
               </ListItemButton>
             </ListItem>
             <ListItem disablePadding>
-              <ListItemButton disabled sx={{ borderRadius: 2, py: 0.75 }}>
-                <MedicationIcon sx={{ fontSize: 18, color: 'text.disabled', mr: 1.5 }} />
-                <ListItemText primary="💊 用药提醒" slotProps={{ primary: { variant: 'body2', sx: { color: 'text.disabled' } } }} />
+              <ListItemButton onClick={() => navigate('/reminders')} sx={{ borderRadius: 2, py: 0.75 }}>
+                <MedicationIcon sx={{ fontSize: 18, color: 'primary.main', mr: 1.5 }} />
+                <ListItemText primary="💊 用药提醒" slotProps={{ primary: { variant: 'body2', sx: { color: 'text.primary' } } }} />
               </ListItemButton>
             </ListItem>
           </List>

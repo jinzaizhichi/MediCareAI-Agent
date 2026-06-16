@@ -89,6 +89,7 @@ function App() {
             {/* 患者端 */}
             <Route path="/health" element={<RequireRole role="patient"><HealthProfilePage /></RequireRole>} />
             <Route path="/followups" element={<RequireRole role="patient"><FollowUpPage /></RequireRole>} />
+            <Route path="/reminders" element={<RequireRole role="patient"><Suspense fallback={<LoadingFallback />}><div>💊 用药提醒</div></Suspense></RequireRole>} />
 
             {/* 医生端 — 独立蓝色主题 */}
             <Route path="/doctor" element={<RequireRole role="doctor"><DoctorThemeProvider><DoctorLayout /></DoctorThemeProvider></RequireRole>}>
