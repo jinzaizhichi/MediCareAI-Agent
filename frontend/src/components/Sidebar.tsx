@@ -9,6 +9,9 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ChatIcon from '@mui/icons-material/Chat';
 import LogoutIcon from '@mui/icons-material/Logout';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
+import HealingIcon from '@mui/icons-material/Healing';
+import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
+import MedicationIcon from '@mui/icons-material/Medication';
 import type { ChatSession } from '../types/agent';
 import { logout } from '../api/auth';
 import { useNavigate } from 'react-router-dom';
@@ -115,6 +118,33 @@ export default function Sidebar({
           </List>
         </Collapse>
       </Box>
+
+      <Divider sx={{ borderColor: '#F5E6D3' }} />
+
+      {!isGuest && (
+        <Box sx={{ p: 1 }}>
+          <List dense>
+            <ListItem disablePadding>
+              <ListItemButton disabled sx={{ borderRadius: 2, py: 0.75 }}>
+                <HealingIcon sx={{ fontSize: 18, color: 'text.disabled', mr: 1.5 }} />
+                <ListItemText primary="📊 健康档案" slotProps={{ primary: { variant: 'body2', sx: { color: 'text.disabled' } } }} />
+              </ListItemButton>
+            </ListItem>
+            <ListItem disablePadding>
+              <ListItemButton disabled sx={{ borderRadius: 2, py: 0.75 }}>
+                <CalendarMonthIcon sx={{ fontSize: 18, color: 'text.disabled', mr: 1.5 }} />
+                <ListItemText primary="📅 随访计划" slotProps={{ primary: { variant: 'body2', sx: { color: 'text.disabled' } } }} />
+              </ListItemButton>
+            </ListItem>
+            <ListItem disablePadding>
+              <ListItemButton disabled sx={{ borderRadius: 2, py: 0.75 }}>
+                <MedicationIcon sx={{ fontSize: 18, color: 'text.disabled', mr: 1.5 }} />
+                <ListItemText primary="💊 用药提醒" slotProps={{ primary: { variant: 'body2', sx: { color: 'text.disabled' } } }} />
+              </ListItemButton>
+            </ListItem>
+          </List>
+        </Box>
+      )}
 
       <Divider sx={{ borderColor: '#F5E6D3' }} />
 

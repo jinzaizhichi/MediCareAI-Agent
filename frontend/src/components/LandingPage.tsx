@@ -22,17 +22,11 @@ export default function LandingPage() {
   const navigate = useNavigate();
 
   const handleTryNow = async () => {
-    // 如果未登录，创建访客 session
     if (!getToken()) {
       try {
-        await agentApi.fetchGuestStatus();
-      } catch {
-        // 没有访客 token 或已过期，创建新的
-        try {
-          await agentApi.createGuestSession();
-        } catch (e) {
-          console.error('Failed to create guest session:', e);
-        }
+        await agentApi.createGuestSession();
+      } catch (e) {
+        console.error('创建访客会话失败:', e);
       }
     }
     navigate('/chat');
