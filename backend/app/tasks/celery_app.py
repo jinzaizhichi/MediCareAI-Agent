@@ -18,6 +18,7 @@ celery_app = Celery(
         "app.tasks.health",
         "app.tasks.agent",
         "app.tasks.audit",
+        "app.tasks.planning",
     ],
 )
 

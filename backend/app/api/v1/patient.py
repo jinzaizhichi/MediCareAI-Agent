@@ -375,19 +375,7 @@ async def refresh_health_profile(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Trigger AI to regenerate health summary from patient history.
-    
-    Currently a placeholder — full AI integration comes in Phase 2b.
-    """
-    profile = await db.scalar(
-        select(PatientHealthProfile).where(
-            PatientHealthProfile.patient_id == current_user.id
-        )
-    )
-    if not profile:
-        profile = PatientHealthProfile(patient_id=current_user.id)
-        db.add(profile)
-    profile.last_updated = datetime.now(timezone.utc)
-    profile.updated_by_agent = "patient_manual"
-    await db.commit()
-    return {"task_id": "pending", "message": "Health profile refresh queued"}
+    """Trigger AI to regenerate health summary from patient history."""
+    from app.tasks.planning import generate_health_profile
+    task = generate_health_profile.delay(str(current_user.id))
+    return {"task_id": task.id, "message": "Health profile refresh started"}

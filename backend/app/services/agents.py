@@ -23,6 +23,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import async_session_maker
@@ -957,6 +958,64 @@ OUTPUT: Always use the structured treatment plan format.
                 structured_output=structured,
                 session_id=session_id,
             )
+
+    async def generate_health_profile(
+        self, patient_id: str
+    ) -> dict:
+        """Generate AI health summary from patient's medical history."""
+        from app.models.agent import PatientHealthProfile
+        from app.models.medical_case import MedicalCase
+        from app.db.session import async_session_maker
+
+        async with async_session_maker() as db:
+            llm = LLMService(provider=self.provider, db=db)
+
+            # Collect data sources
+            cases = await db.execute(
+                select(MedicalCase).where(
+                    MedicalCase.patient_id == patient_id
+                ).order_by(MedicalCase.created_at.desc()).limit(20)
+            )
+            case_list = cases.scalars().all()
+
+            if not case_list:
+                return {"message": "No medical history found for AI summary"}
+
+            history = "\n".join([
+                f"- {c.title}: {c.description or ''} (created: {c.created_at})"
+                for c in case_list
+            ])
+
+            prompt = f"""Based on the patient's medical history below, generate a structured health profile summary.
+
+Medical History:
+{history}
+
+Generate a concise health_summary (2-3 paragraphs) and populate:
+- disease_patterns: list of recurring conditions with approximate dates
+- medication_history: list of current/past medications with dates
+- risk_factors: key health risks with estimated severity (low/medium/high)"""
+
+            result = await llm.chat(
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=1024,
+            )
+
+            # Parse and save
+            profile = await db.scalar(
+                select(PatientHealthProfile).where(
+                    PatientHealthProfile.patient_id == patient_id
+                )
+            )
+            if not profile:
+                profile = PatientHealthProfile(patient_id=patient_id)
+                db.add(profile)
+
+            profile.health_summary = result.content
+            profile.last_updated = datetime.now(timezone.utc)
+            profile.updated_by_agent = "planning"
+            await db.commit()
+            return {"message": "Health profile updated", "summary_length": len(result.content)}
 
 
 # ---------------------------------------------------------------------------
