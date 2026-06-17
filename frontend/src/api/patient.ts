@@ -75,10 +75,15 @@ export async function listCarePlans(): Promise<CarePlan[]> {
 }
 
 export async function ackTask(planId: string, taskId: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/patient/care-plans/${planId}/ack`, {
+  const res = await fetch(`${API_BASE}/patient/care-plans/${planId}/ack?task_id=${encodeURIComponent(taskId)}`, {
     method: 'POST',
     headers: authHeaders(),
-    body: JSON.stringify({ task_id: taskId }),
   });
   if (!res.ok) throw new Error('Failed to ack task');
+}
+
+export async function getReminderCount(): Promise<{ follow_up: number; medication: number; total: number }> {
+  const res = await fetch(`${API_BASE}/patient/reminders/count`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Failed to fetch reminder count');
+  return res.json();
 }

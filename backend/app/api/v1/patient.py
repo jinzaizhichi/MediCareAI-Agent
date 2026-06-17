@@ -363,6 +363,33 @@ async def check_in(
     return {"success": True, "task_id": data.task_id, "task_status": "completed"}
 
 
+@router.get("/reminders/count")
+async def get_reminder_count(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Get count of unacknowledged reminders for sidebar badge."""
+    result = await db.execute(
+        select(
+            MonitoringEvent.event_type,
+            func.count().label("count")
+        ).where(
+            MonitoringEvent.patient_id == current_user.id,
+            MonitoringEvent.status == "sent",
+            MonitoringEvent.acknowledged_at.is_(None),
+        ).group_by(MonitoringEvent.event_type)
+    )
+    rows = result.all()
+    counts = {"follow_up": 0, "medication": 0, "total": 0}
+    for row in rows:
+        if "medication" in row.event_type:
+            counts["medication"] += row.count
+        elif "follow_up" in row.event_type:
+            counts["follow_up"] += row.count
+    counts["total"] = counts["follow_up"] + counts["medication"]
+    return counts
+
+
 # ═══════════════════════════════════════════════════════════════
 # Health Profile Refresh (triggers AI regeneration)
 # ═══════════════════════════════════════════════════════════════

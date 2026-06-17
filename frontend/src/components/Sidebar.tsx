@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Box, Drawer, List, ListItem, ListItemButton, ListItemText,
-  Typography, IconButton, Divider, Button, Collapse,
+  Typography, IconButton, Divider, Button, Collapse, Badge,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
@@ -54,6 +54,28 @@ export default function Sidebar({
   const [historyOpen, setHistoryOpen] = useState(true);
   const grouped = groupSessionsByDate(sessions);
   const navigate = useNavigate();
+  const [reminderCount, setReminderCount] = useState(0);
+  const [medicationCount, setMedicationCount] = useState(0);
+
+  useEffect(() => {
+    if (isGuest) return;
+    const fetchCounts = async () => {
+      try {
+        const token = localStorage.getItem('access_token');
+        const res = await fetch('/api/v1/patient/reminders/count', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setReminderCount(data.follow_up || 0);
+          setMedicationCount(data.medication || 0);
+        }
+      } catch {}
+    };
+    fetchCounts();
+    const interval = setInterval(fetchCounts, 60000);
+    return () => clearInterval(interval);
+  }, [isGuest]);
 
   const handleLogout = async () => {
     await logout();
@@ -131,16 +153,22 @@ export default function Sidebar({
               </ListItemButton>
             </ListItem>
             <ListItem disablePadding>
-              <ListItemButton onClick={() => navigate('/followups')} sx={{ borderRadius: 2, py: 0.75 }}>
-                <CalendarMonthIcon sx={{ fontSize: 18, color: 'primary.main', mr: 1.5 }} />
-                <ListItemText primary="📅 随访计划" slotProps={{ primary: { variant: 'body2', sx: { color: 'text.primary' } } }} />
-              </ListItemButton>
+              <Badge badgeContent={reminderCount} color="warning" max={99}
+                sx={{ width: '100%', '& .MuiBadge-badge': { fontSize: 10, height: 18, minWidth: 18 } }}>
+                <ListItemButton onClick={() => navigate('/followups')} sx={{ borderRadius: 2, py: 0.75, width: '100%' }}>
+                  <CalendarMonthIcon sx={{ fontSize: 18, color: 'primary.main', mr: 1.5 }} />
+                  <ListItemText primary="📅 随访计划" slotProps={{ primary: { variant: 'body2', sx: { color: 'text.primary' } } }} />
+                </ListItemButton>
+              </Badge>
             </ListItem>
             <ListItem disablePadding>
-              <ListItemButton onClick={() => navigate('/reminders')} sx={{ borderRadius: 2, py: 0.75 }}>
-                <MedicationIcon sx={{ fontSize: 18, color: 'primary.main', mr: 1.5 }} />
-                <ListItemText primary="💊 用药提醒" slotProps={{ primary: { variant: 'body2', sx: { color: 'text.primary' } } }} />
-              </ListItemButton>
+              <Badge badgeContent={medicationCount} color="warning" max={99}
+                sx={{ width: '100%', '& .MuiBadge-badge': { fontSize: 10, height: 18, minWidth: 18 } }}>
+                <ListItemButton onClick={() => navigate('/reminders')} sx={{ borderRadius: 2, py: 0.75, width: '100%' }}>
+                  <MedicationIcon sx={{ fontSize: 18, color: 'primary.main', mr: 1.5 }} />
+                  <ListItemText primary="💊 用药提醒" slotProps={{ primary: { variant: 'body2', sx: { color: 'text.primary' } } }} />
+                </ListItemButton>
+              </Badge>
             </ListItem>
           </List>
         </Box>
