@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Container, Box, Typography, Card, CardContent, TextField, Button, Chip,
   IconButton, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  Paper, Grid, Stack, FormControl, InputLabel, Select, MenuItem, OutlinedInput, Checkbox, ListItemText,
+  Paper, Grid, Stack, FormControl, InputLabel, Select, MenuItem, OutlinedInput, Checkbox, ListItemText, CircularProgress,
 } from '@mui/material';
 import ArrowBackIosNewIcon from '@mui/icons-material/ArrowBackIosNew';
 import AddIcon from '@mui/icons-material/Add';
@@ -42,53 +42,33 @@ const CHRONIC_DISEASES: { code: string; name: string; category: string }[] = [
   { code: 'F41', name: '焦虑障碍', category: '精神' },
 ];
 
-const fallbackProfile: PatientProfile = {
-  id: 'demo-001',
-  name: '张三',
-  email: 'zhangsan@example.com',
-  phone: '13800138000',
-  date_of_birth: '1985-06-15',
-  gender: 'male',
-  height: 175,
-  weight: 70,
-  allergies: ['青霉素', '花生'],
-  chronic_diseases: [{ code: 'E11', name: '2型糖尿病' }, { code: 'I10', name: '原发性高血压' }],
-  medications: [
-    { name: '氨氯地平片', dosage: '5mg', frequency: '每日一次', start_date: '2023-01-10' },
-    { name: '二甲双胍片', dosage: '500mg', frequency: '每日两次', start_date: '2023-02-20' },
-  ],
-};
-
 export default function HealthProfilePage() {
   const navigate = useNavigate();
-  const [profile, setProfile] = useState<PatientProfile>(fallbackProfile);
+  const [profile, setProfile] = useState<PatientProfile | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  // 用于编辑时的临时状态
-  const [editProfile, setEditProfile] = useState<PatientProfile>(fallbackProfile);
+  const [editProfile, setEditProfile] = useState<PatientProfile | null>(null);
   const [newAllergy, setNewAllergy] = useState('');
 
-  useEffect(() => {
-    let mounted = true;
-    getProfile()
-      .then((data) => {
-        if (mounted) {
-          const merged = { ...fallbackProfile, ...data };
-          setProfile(merged);
-          setEditProfile(merged);
-          setLoading(false);
-        }
-      })
-      .catch(() => {
-        if (mounted) {
-          setProfile(fallbackProfile);
-          setEditProfile(fallbackProfile);
-          setLoading(false);
-        }
-      });
-    return () => {
-      mounted = false;
+  const fetchProfile = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const data = await getProfile();
+      setProfile(data);
+      setEditProfile(data);
+    } catch {
+      setError('加载失败，请刷新重试');
+      setProfile(null);
+      setEditProfile(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchProfile(); }, []);
     };
   }, []);
 
@@ -101,21 +81,19 @@ export default function HealthProfilePage() {
   };
 
   const handleSave = async () => {
+    if (!editProfile) return;
     try {
       const updated = await updateProfile(editProfile);
-      const merged = { ...editProfile, ...updated };
-      setProfile(merged);
-      setEditProfile(merged);
+      setProfile(updated);
+      setEditProfile(updated);
       setIsEditing(false);
     } catch {
-      // 如果 API 失败，仍然本地保存演示
-      setProfile(editProfile);
       setIsEditing(false);
     }
   };
 
   const handleChange = (field: keyof PatientProfile, value: string | number) => {
-    setEditProfile((prev) => ({ ...prev, [field]: value }));
+    setEditProfile((prev) => prev ? { ...prev, [field]: value } : prev);
   };
 
   const handleAddAllergy = () => {
@@ -177,6 +155,21 @@ export default function HealthProfilePage() {
 
   const display = isEditing ? editProfile : profile;
 
+  if (loading) return (
+    <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', bgcolor: warmBg }}>
+      <CircularProgress sx={{ color: warmPrimary }} />
+    </Box>
+  );
+
+  if (error || !profile) return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100vh', bgcolor: warmBg, gap: 2 }}>
+      <Typography sx={{ color: '#8B7355' }}>{error || '加载失败'}</Typography>
+      <Button variant="outlined" onClick={fetchProfile} sx={{ color: warmPrimary, borderColor: warmPrimary }}>
+        重试
+      </Button>
+    </Box>
+  );
+
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: warmBg, pb: 6 }}>
       <Container maxWidth="md">
@@ -222,13 +215,6 @@ export default function HealthProfilePage() {
             </Button>
           )}
         </Box>
-
-        {loading && (
-          <Typography sx={{ color: warmText, textAlign: 'center', py: 4 }}>
-            加载中...
-          </Typography>
-        )}
-
         {/* 基础信息 */}
         <Card sx={{ mb: 2, borderRadius: 3 }}>
           <CardContent>

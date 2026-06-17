@@ -54,6 +54,81 @@ def _inject_lab_context(messages: list[dict[str, str]], lab_reports: list[dict[s
     messages.insert(0, {"role": "system", "content": lab_text})
 
 
+async def _load_health_profile_context(
+    db: AsyncSession,
+    user_id: str | None,
+) -> str:
+    """Load patient health profile for context injection.
+
+    Context Pipeline data source. Returns empty string for guests
+    (user_id=None) and patients with no health profile data.
+    Phase 2a: includes chronic_diseases (ICD-10), allergies, current_medications.
+    """
+    if not user_id:
+        return ""
+
+    try:
+        import uuid as _uuid
+        from sqlalchemy import select as _sel
+        from app.models.agent import PatientHealthProfile
+
+        result = await db.execute(
+            _sel(PatientHealthProfile).where(
+                PatientHealthProfile.patient_id == _uuid.UUID(user_id)
+            )
+        )
+        profile = result.scalar_one_or_none()
+        if not profile:
+            return ""
+
+        parts = ["### Patient Health Profile"]
+
+        if profile.chronic_diseases and isinstance(profile.chronic_diseases, list):
+            diseases = [
+                f"{d.get('name', '')} ({d.get('code', '')})"
+                for d in profile.chronic_diseases if isinstance(d, dict)
+            ]
+            if diseases:
+                parts.append(f"**Chronic Diseases (ICD-10)**: {', '.join(diseases)}")
+
+        if profile.allergies and isinstance(profile.allergies, list) and len(profile.allergies) > 0:
+            parts.append(f"**Allergies**: {', '.join(str(a) for a in profile.allergies)}")
+
+        if profile.current_medications and isinstance(profile.current_medications, list):
+            meds = [
+                f"{m.get('name', '')} {m.get('dosage', '')} ({m.get('frequency', '')})"
+                for m in profile.current_medications if isinstance(m, dict)
+            ]
+            if meds:
+                parts.append(f"**Current Medications**: {'; '.join(meds)}")
+
+        if profile.health_summary:
+            parts.append(f"**Overview**: {profile.health_summary[:300]}")
+
+        if profile.disease_patterns and isinstance(profile.disease_patterns, dict):
+            rc = profile.disease_patterns.get("recurrent_conditions", [])
+            if rc:
+                parts.append(f"**Common Issues**: {', '.join(str(c) for c in rc[:5])}")
+
+        if profile.medication_history and isinstance(profile.medication_history, dict):
+            cur = profile.medication_history.get("current", [])
+            if cur:
+                parts.append(f"**Medication History**: {', '.join(str(m) for m in cur[:5])}")
+            ar = profile.medication_history.get("adverse_reactions", [])
+            if ar:
+                parts.append(f"**Adverse Reactions**: {', '.join(str(a) for a in ar[:5])}")
+
+        if profile.risk_factors and isinstance(profile.risk_factors, dict):
+            risks = [f"{k}: {v}" for k, v in profile.risk_factors.items() if v]
+            if risks:
+                parts.append(f"**Risk Factors**: {'; '.join(risks[:5])}")
+
+        return "\n".join(parts) + "\n"
+
+    except Exception:
+        return ""
+
+
 async def _build_conversation_context(
     db: AsyncSession,
     query_sid: str,
@@ -156,37 +231,10 @@ async def _build_conversation_context(
                         context_parts.append(f"  Diagnosis: {dd[:150]}")
                 context_parts.append("")
 
-            # Load Health Profile
-            try:
-                from sqlalchemy import select as _select
-                from app.models.agent import PatientHealthProfile
-                stmt = _select(PatientHealthProfile).where(
-                    PatientHealthProfile.patient_id == _uuid.UUID(user_id)
-                )
-                result = await db.execute(stmt)
-                profile = result.scalar_one_or_none()
-                if profile:
-                    context_parts.append("### Patient Health Profile")
-                    if profile.health_summary:
-                        context_parts.append(f"**Overview**: {profile.health_summary[:300]}")
-                    if profile.disease_patterns and isinstance(profile.disease_patterns, dict):
-                        rc = profile.disease_patterns.get("recurrent_conditions", [])
-                        if rc:
-                            context_parts.append(f"**Common Issues**: {', '.join(str(c) for c in rc[:5])}")
-                    if profile.medication_history and isinstance(profile.medication_history, dict):
-                        cur = profile.medication_history.get("current", [])
-                        if cur:
-                            context_parts.append(f"**Current Medications**: {', '.join(str(m) for m in cur[:5])}")
-                        ar = profile.medication_history.get("adverse_reactions", [])
-                        if ar:
-                            context_parts.append(f"**Adverse Reactions**: {', '.join(str(a) for a in ar[:5])}")
-                    if profile.risk_factors and isinstance(profile.risk_factors, dict):
-                        risks = [f"{k}: {v}" for k, v in profile.risk_factors.items() if v]
-                        if risks:
-                            context_parts.append(f"**Risk Factors**: {'; '.join(risks[:5])}")
-                    context_parts.append("")
-            except Exception:
-                pass
+            # Load Health Profile (Context Pipeline)
+            health_ctx = await _load_health_profile_context(db, user_id)
+            if health_ctx:
+                context_parts.append(health_ctx)
         except Exception:
             pass
 
