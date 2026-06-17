@@ -69,8 +69,6 @@ export default function HealthProfilePage() {
   };
 
   useEffect(() => { fetchProfile(); }, []);
-    };
-  }, []);
 
   const handleToggleEdit = () => {
     if (isEditing) {
